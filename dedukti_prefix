@@ -1,0 +1,51 @@
+#NAME example.
+
+o : Type.
+
+def eps : o -> Type.
+
+bot : o.
+[ ] eps bot --> z:o -> (eps z).
+
+imp : o -> o -> o.
+[a, b] eps (imp a b) --> eps a -> eps b.
+
+def not : o -> o := x:o => imp x bot.
+
+def or : o -> o -> o.
+[x, y] eps (or x y)
+        --> z:o -> (eps x -> eps z) -> (eps y -> eps z) -> eps z.
+
+def lit : o -> Type := p => eps p -> eps bot.
+def nlit : o -> Type := p => (eps p -> eps bot) -> eps bot.
+
+def lift : p : o -> eps p -> nlit p :=
+p => tp => tnp => tnp tp.
+
+def unlift : p : o -> nlit (not p) -> lit p :=
+p => tnnnp => tp => tnnnp (tnp => tnp tp).
+
+clause : Type.
+
+empty : clause.
+add : o -> clause -> clause.
+
+def interp : clause -> o.
+[] interp empty --> bot.
+[l, c] interp (add l c) --> or l (interp c).
+
+def embed : clause -> Type.
+[] embed empty --> eps bot.
+[l, c] embed (add l c) --> lit l -> embed c.
+
+def interp_to_embed : c : clause ->  eps (interp c) -> embed c.
+[p] interp_to_embed empty p --> p.
+[l, c, p] interp_to_embed (add l c) p -->
+ tl => interp_to_embed c (p (interp c) (tnl => tl tnl (interp c)) (x => x)).
+
+def let_clause : c : clause -> embed c -> (embed c -> eps bot) -> eps bot.
+[c,t,u] let_clause c t u --> u t.
+
+def let_o : p : o -> eps p -> (eps p -> eps bot) -> eps bot.
+[c, t, u] let_o c t u --> u t.
+
