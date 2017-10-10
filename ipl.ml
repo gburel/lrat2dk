@@ -15,7 +15,7 @@ type clause_term =
 
 open Format
 
-let pp_cid ppf i = fprintf ppf "c%u" i
+let pp_cid ppf i = fprintf ppf "c%s" i
 
 let pp_termpred ppf i = if i > 0 then
     fprintf ppf "tp%d" i
@@ -66,7 +66,7 @@ let rec pp_proof_term ppf = function
 module type PP = sig
   val begin_proof : formatter -> int -> unit
   val pp_clause_term : formatter -> clause_term -> unit
-  val end_proof : formatter -> int -> unit
+  val end_proof : formatter -> id -> unit
 end
   
 module One_proof_term : PP =
@@ -116,14 +116,14 @@ module Proof_steps : PP = struct
 
   let pp_clause_term ppf = function
     | Let_clause (i, l, pt) ->
-       fprintf ppf "@[def c%d@ :@ @[embed %a@] :=@]@."
-         i
+       fprintf ppf "@[def %a@ :@ @[embed %a@] :=@]@."
+         pp_cid i
          pp_clause_par_dk l;
       List.iter (fprintf ppf "@[%a =>@ " pp_termlit) l;
       fprintf ppf "@[%a@]@].@."pp_proof_term pt
 
   let end_proof ppf last_id =
-    fprintf ppf "@[def proof : eps bot := c%d.@]@." last_id
+    fprintf ppf "@[def proof : eps bot := %a.@]@." pp_cid last_id
 
 end
       

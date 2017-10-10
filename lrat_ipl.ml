@@ -15,9 +15,9 @@ module Env = Map.Make
 type env = env_lit Env.t
 
 let pp_env_lit ppf = function
-  | From_clause i -> Format.fprintf ppf "From_clause c%d" i
+  | From_clause i -> Format.fprintf ppf "From_clause %a" pp_cid i
   | From_pred  -> Format.fprintf ppf "From_pred"
-  | From_rat i-> Format.fprintf ppf "From_rat c%d" i
+  | From_rat i-> Format.fprintf ppf "From_rat %a" pp_cid i
 
 let pp_env ppf =
   Env.iter (fun k v -> Format.fprintf ppf "@[%i -> %a@]@ " k pp_env_lit v)

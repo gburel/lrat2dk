@@ -12,7 +12,7 @@ let read_cnf f =
   try
     while true do
       let c = Dimacs_lexer.line lexbuf in
-      Format.(fprintf Globals.dedukti_out  "@[def C%d : clause :=@ %a.@]@."
+      Format.(fprintf Globals.dedukti_out  "@[def C%s : clause :=@ %a.@]@."
                 c.id Lrat_types.pp_clause_dk c.as_list);
       Hashtbl.add Globals.clause_map c.id c
     done
@@ -27,7 +27,7 @@ let read_cnf f =
 let read_lrat f =      
   let ic = open_in f in
   let lexbuf = Lexing.from_channel ic in
-  let last_id = ref (-1) in
+  let last_id = ref "bad_clause" in
   try
     while true do
       let line = Lrat_lexer.line lexbuf in

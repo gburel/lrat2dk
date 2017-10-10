@@ -1,4 +1,4 @@
-type id = int
+type id = string
 type pos = int
 type lit = int
 

@@ -7,22 +7,22 @@ let int = '-'?nat
 rule idsnl accu = parse
   [' ''\t']+ { idsnl accu lexbuf }
 | '0'+[' ''\t']*'\n' { Lexing.new_line lexbuf; accu }
-| nat as n { idsnl (int_of_string n::accu) lexbuf }
+| nat as n { idsnl (n::accu) lexbuf }
 
 and rats id as_list clause rup pivot cur_accu rats_accu = parse
   [' ''\t']+ { rats id as_list clause rup pivot cur_accu rats_accu lexbuf }
 | '0'+[' ''\t']*'\n' { Lexing.new_line lexbuf;
                        Rat { id; as_list; clause; rup; rats = (pivot, cur_accu)::rats_accu } }
-| '-'(nat as n) { rats id as_list clause rup (int_of_string n) [] ((pivot, cur_accu)::rats_accu) lexbuf }
-| nat as n { rats id as_list clause rup pivot ((int_of_string n)::cur_accu) rats_accu lexbuf }
+| '-'(nat as n) { rats id as_list clause rup n [] ((pivot, cur_accu)::rats_accu) lexbuf }
+| nat as n { rats id as_list clause rup pivot (n::cur_accu) rats_accu lexbuf }
 
 and rup id as_list clause accu = parse
   [' ''\t']+ { rup id as_list clause accu lexbuf }
 | '0'+[' ''\t']*'\n' { Lexing.new_line lexbuf;
                        Rat { id; as_list; clause;
                              rup = List.rev accu; rats = [] } }
-| '-'(nat as n) { rats id as_list clause (List.rev accu) (int_of_string n) [] [] lexbuf }
-| nat as n { rup id as_list clause (int_of_string n :: accu) lexbuf }
+| '-'(nat as n) { rats id as_list clause (List.rev accu) n [] [] lexbuf }
+| nat as n { rup id as_list clause (n :: accu) lexbuf }
     
 and line_accu id as_list accu = parse
   [' ''\t']+ { line_accu id as_list accu lexbuf }
@@ -40,5 +40,5 @@ and line_cont id = parse
 
 and line = parse
   [' ''\t']+ { line lexbuf }
-| nat as n { line_cont (int_of_string n) lexbuf }
+| nat as n { line_cont n lexbuf }
 | eof { raise End_of_file }
