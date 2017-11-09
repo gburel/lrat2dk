@@ -1,5 +1,7 @@
 all: lrat2dk
 
+OCAMLFLAGS= -g
+
 %.ml: %.mll
 	ocamllex $<
 
@@ -9,13 +11,13 @@ ptset.cmo: ptset.cmi
 globals.cmo: globals.cmi
 
 %.cmo: %.ml
-	ocamlc -c $<
+	ocamlc $(OCAMLFLAGS) -c $<
 
 %.cmi: %.mli
 	ocamlc -c $<
 
 lrat2dk: ptset.cmo lrat_types.cmo globals.cmo dimacs_lexer.cmo lrat_lexer.cmo ipl.cmo lrat_ipl.cmo proof_generation.cmo
-	ocamlc -o $@ $^
+	ocamlc $(OCAMLFLAGS) -o $@ $^
 clean:
 	-rm *.cmo *.cmi lrat2dk
 

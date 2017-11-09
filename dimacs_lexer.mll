@@ -8,8 +8,8 @@ let space = [' ''\t']
 rule litsnl as_list clause = parse
   [' ''\t']+ { litsnl as_list clause lexbuf }
 | '0'+[' ''\t']*'\n' {
-  let id = string_of_int Lexing.(lexbuf.lex_start_p.pos_lnum) in
-  let r = { id; as_list = List.rev as_list; clause; rup = []; rats = [] } in
+  let id = base_id (Lexing.(lexbuf.lex_start_p.pos_lnum)) in
+  let r = { id; as_list = List.rev as_list; clause; rup = []; rats = IdMap.empty } in
   Lexing.new_line lexbuf; r }
 | int as s {
   let n = int_of_string s in

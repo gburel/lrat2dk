@@ -12,9 +12,9 @@ let read_cnf f =
   try
     while true do
       let c = Dimacs_lexer.line lexbuf in
-      Format.(fprintf Globals.dedukti_out  "@[def C%s : clause :=@ %a.@]@."
-                c.id Lrat_types.pp_clause_dk c.as_list);
-      Hashtbl.add Globals.clause_map c.id c
+      Format.(fprintf Globals.dedukti_out  "@[def C%a : clause :=@ %a.@]@."
+                pp_id c.id Lrat_types.pp_clause_dk c.as_list);
+      Lrat_ipl.CM.add c
     done
   with End_of_file ->
     close_in ic;
@@ -27,26 +27,24 @@ let read_cnf f =
 let read_lrat f =      
   let ic = open_in f in
   let lexbuf = Lexing.from_channel ic in
-  let last_id = ref "bad_clause" in
+  let last_id = ref (base_id (-1)) in
   try
     while true do
       let line = Lrat_lexer.line lexbuf in
       match line with
-        Delete l -> List.iter (Hashtbl.remove Globals.clause_map) l
-      | Rat ( {id; clause; rup } as ch) -> Hashtbl.add Globals.clause_map id ch;
-        let iplterm = Lrat_ipl.define_clause ch in
-        last_id := id;
-        Format.fprintf Globals.dedukti_out
-          "%a@." PP.pp_clause_term iplterm
+        Delete l ->  List.iter (Lrat_ipl.CM.remove_all) l 
+      | Rat ( {id; clause; rup } as ch) -> Lrat_ipl.CM.add ch;
+        Lrat_ipl.define_clauses ch;
+        last_id := id
     done
   with End_of_file ->
     close_in ic;
     PP.end_proof Globals.dedukti_out !last_id;
     Printf.printf "Read LRAT file %s\n" f
-  | Failure _ as e ->
+  | e ->
      let open Lexing in
-     Printf.fprintf stderr "Parsing error in file %s at line %i, character %i\n"
-       lexbuf.lex_start_p.pos_fname
+     Printf.fprintf stderr "Error in file %s at line %i, character %i\n"
+       f
        lexbuf.lex_start_p.pos_lnum
        (lexbuf.lex_start_p.pos_cnum - lexbuf.lex_start_p.pos_bol);
      raise e

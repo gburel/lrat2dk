@@ -9,13 +9,14 @@ and arg =
 type proof_term =
     Let_o of lit * core * proof_term
   | Qed of core
-
+  | Tauto of lit
+      
 type clause_term =
     Let_clause of id * lit list * proof_term
 
 open Format
 
-let pp_cid ppf i = fprintf ppf "c%s" i
+let pp_cid ppf i = fprintf ppf "c%a" pp_id i
 
 let pp_termpred ppf i = if i > 0 then
     fprintf ppf "tp%d" i
@@ -62,6 +63,9 @@ let rec pp_proof_term ppf = function
        pp_proof_term t2 
   | Qed c -> 
      pp_core ppf c
+  | Tauto l ->
+     let ln, lp = if l > 0 then -l, l else l, -l in
+     fprintf ppf "@[%a %a@]" pp_termlit ln pp_termlit lp
 
 module type PP = sig
   val begin_proof : formatter -> int -> unit
