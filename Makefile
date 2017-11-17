@@ -24,4 +24,9 @@ clean:
 depend:
 	ocamldep *.ml *.mli > .depend
 
+test:
+	-rm examples/*.dk
+	sh ./test.sh 2> log_tests
+	for i in examples/*.dk; do echo "Checking $$i"; dkcheck $$i; done
+
 include .depend

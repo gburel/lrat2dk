@@ -16,8 +16,6 @@ type clause_term =
 
 open Format
 
-let pp_cid ppf i = fprintf ppf "c%a" pp_id i
-
 let pp_termpred ppf i = if i > 0 then
     fprintf ppf "tp%d" i
   else

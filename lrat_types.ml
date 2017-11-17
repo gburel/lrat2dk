@@ -8,12 +8,14 @@ let base_id i = i, Ptset.empty
 let merge_ids a b =
   let i, ca = a in
   let j, cb = b in
-  j, Ptset.(union cb @@ add i ca)
+  if i = j && ca = Ptset.empty && Ptset.cardinal cb = 1 then
+    Ptset.choose cb, Ptset.singleton i
+  else
+    j, Ptset.(union cb @@ add i ca)
 
 let occurs_in_id (j,e) (i,s) =
-  let open Ptset in
-  not @@ is_empty (inter (add j e) (add i s))
-    
+  merge_ids (j,e) (i,s) = (i, s)
+  
 type clause = Ptset.t
 
 module IdMap = Map.Make(struct type t = id let compare = compare end)
@@ -41,6 +43,7 @@ let rec pp_id ppf (i, c) =
   if not @@ Ptset.is_empty c then fprintf ppf "_";
   Ptset.iter (fprintf ppf "_%i") c
   
+let pp_cid ppf i = fprintf ppf "c%a" pp_id i
     
 let pp_lit_dk ppf i =
   if i > 0 then
@@ -59,3 +62,28 @@ let pp_clause_dk ppf l =
     [] -> fprintf ppf "empty"
   | x :: q -> fprintf ppf "@[add %a@ %a@]"
      pp_lit_dk x pp_clause_par_dk q
+
+
+
+type env_lit =
+  | From_clause of id
+  | From_pred
+  | From_rat of id
+  | From_self of id
+      
+module Env = Map.Make
+  (struct
+    type t = lit
+    let compare = compare
+   end)
+
+type env = env_lit Env.t
+
+let pp_env_lit ppf = function
+  | From_clause i -> Format.fprintf ppf "From_clause %a" pp_cid i
+  | From_pred  -> Format.fprintf ppf "From_pred"
+  | From_rat i-> Format.fprintf ppf "From_rat %a" pp_cid i
+  | From_self i -> Format.fprintf ppf "From_self %a" pp_id i
+
+let pp_env ppf =
+  Env.iter (fun k v -> Format.fprintf ppf "@[<hov2>%i -> %a;@]@ " k pp_env_lit v)
