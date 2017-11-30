@@ -1,4 +1,4 @@
-all: lrat2dk
+all: lrat2dk debug_printers.cmo
 
 OCAMLFLAGS= -g
 

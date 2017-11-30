@@ -1,21 +1,32 @@
-type id = int * Ptset.t
+type id = Base of int | Quotient of id * id
       
 type pos = int
 type lit = int
 
-let base_id i = i, Ptset.empty
+let base_id i = Base i
   
 let merge_ids a b =
-  let i, ca = a in
-  let j, cb = b in
-  if i = j && ca = Ptset.empty && Ptset.cardinal cb = 1 then
-    Ptset.choose cb, Ptset.singleton i
-  else
-    j, Ptset.(union cb @@ add i ca)
+  Quotient (b, a)
 
-let occurs_in_id (j,e) (i,s) =
-  merge_ids (j,e) (i,s) = (i, s)
-  
+    
+let rec get_base id = match id with
+    Base _ -> id
+  | Quotient (a,b) -> get_base a
+
+let rec occurs_in_id a b =
+  false
+    
+let rec iter_id f id = match id with
+    Base i -> f i
+  | Quotient (a,b) -> iter_id f a; iter_id f b
+
+let numerator id = match id with
+    Base _ -> failwith "Non quotient id"
+  | Quotient (a,b) -> a
+
+let rec is_in id a =
+   id = a 
+     
 type clause = Ptset.t
 
 module IdMap = Map.Make(struct type t = id let compare = compare end)
@@ -38,10 +49,10 @@ let print_clause c =
 open Format
 
     
-let rec pp_id ppf (i, c) =
-  fprintf ppf "%i" i;
-  if not @@ Ptset.is_empty c then fprintf ppf "_";
-  Ptset.iter (fprintf ppf "_%i") c
+let rec pp_id ppf a = match a with
+    Base i -> fprintf ppf "%i" i
+  | Quotient (a,b) ->
+     fprintf ppf "%a_%a_" pp_id a pp_id b
   
 let pp_cid ppf i = fprintf ppf "c%a" pp_id i
     
@@ -70,6 +81,7 @@ type env_lit =
   | From_pred
   | From_rat of id
   | From_self of id
+  | From_subrat of id
       
 module Env = Map.Make
   (struct
@@ -84,6 +96,7 @@ let pp_env_lit ppf = function
   | From_pred  -> Format.fprintf ppf "From_pred"
   | From_rat i-> Format.fprintf ppf "From_rat %a" pp_cid i
   | From_self i -> Format.fprintf ppf "From_self %a" pp_id i
+  | From_subrat i -> Format.fprintf ppf "From_subrat %a" pp_id i
 
 let pp_env ppf =
   Env.iter (fun k v -> Format.fprintf ppf "@[<hov2>%i -> %a;@]@ " k pp_env_lit v)

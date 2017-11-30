@@ -118,7 +118,7 @@ module Proof_steps : PP = struct
 
   let pp_clause_term ppf = function
     | Let_clause (i, l, pt) ->
-       fprintf ppf "@[def %a@ :@ @[embed %a@] :=@]@."
+       fprintf ppf "@[def %a@ :@ @[embed %a@]@ :=@]@."
          pp_cid i
          pp_clause_par_dk l;
       List.iter (fprintf ppf "@[%a =>@ " pp_termlit) l;
