@@ -1,4 +1,4 @@
-all: lrat2dk debug_printers.cmo
+all: lrat2dk debug_printers.cmo cleandk
 
 OCAMLFLAGS= -g
 
@@ -18,6 +18,10 @@ globals.cmo: globals.cmi
 
 lrat2dk: ptset.cmo lrat_types.cmo globals.cmo dimacs_lexer.cmo lrat_lexer.cmo ipl.cmo lrat_ipl.cmo proof_generation.cmo
 	ocamlc $(OCAMLFLAGS) -o $@ $^
+
+cleandk: analyse_lexer.cmo filter_lexer.cmo cleandk.cmo
+	ocamlc $(OCAMLFLAGS) -o $@ $^
+
 clean:
 	-rm *.cmo *.cmi lrat2dk
 
