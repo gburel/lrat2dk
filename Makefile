@@ -1,7 +1,7 @@
-all: lrat2dk debug_printers.cmo cleandk
+all: lrat2dk debug_printers.cmo cleandk lrat2dk.opt
 
-OCAMLFLAGS= -g
-
+OCAMLCFLAGS= -g
+OCAMLOPTFLAGS= -noassert -nodynlink -O3 -unsafe
 %.ml: %.mll
 	ocamllex $<
 
@@ -11,16 +11,24 @@ ptset.cmo: ptset.cmi
 globals.cmo: globals.cmi
 
 %.cmo: %.ml
-	ocamlc $(OCAMLFLAGS) -c $<
+	ocamlc $(OCAMLCFLAGS) -c $<
+
+%.cmx: %.ml
+	ocamlopt $(OCAMLOPTFLAGS) -c $<
 
 %.cmi: %.mli
 	ocamlc -c $<
 
-lrat2dk: ptset.cmo lrat_types.cmo globals.cmo dimacs_lexer.cmo lrat_lexer.cmo ipl.cmo lrat_ipl.cmo proof_generation.cmo
-	ocamlc $(OCAMLFLAGS) -o $@ $^
+OBJ=ptset.cmo lrat_types.cmo globals.cmo dimacs_lexer.cmo lrat_lexer.cmo ipl.cmo lrat_ipl.cmo proof_generation.cmo
+
+lrat2dk: $(OBJ)
+	ocamlc $(OCAMLCFLAGS) -o $@ $^
+
+lrat2dk.opt: $(OBJ:.cmo=.cmx)
+	ocamlopt $(OCAMLOPTFLAGS) -o $@ $^
 
 cleandk: analyse_lexer.cmo filter_lexer.cmo cleandk.cmo
-	ocamlc $(OCAMLFLAGS) -o $@ $^
+	ocamlc $(OCAMLCFLAGS) -o $@ $^
 
 clean:
 	-rm *.cmo *.cmi lrat2dk
