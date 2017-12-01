@@ -33,7 +33,7 @@ let read_lrat f =
       let line = Lrat_lexer.line lexbuf in
       match line with
         Delete l ->  List.iter (Lrat_ipl.CM.remove_all) l 
-      | Rat ( {id; clause; rup } as ch) -> Lrat_ipl.CM.add ch;
+      | Rat ( {id; clause; rup } as ch) ->
         Lrat_ipl.define_clauses ch;
         last_id := id
     done

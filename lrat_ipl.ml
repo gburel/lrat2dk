@@ -46,6 +46,7 @@ module CM : ClauseMap =
 struct
   
   let clause_to_ch : (clause, clause_hist) Hashtbl.t = Hashtbl.create 255
+  let clause_to_nbref : (clause, int) Hashtbl.t = Hashtbl.create 255
   let id_to_clause : (id, clause) Hashtbl.t = Hashtbl.create 255
   let reverse : (int, IdSet.t) Hashtbl.t = Hashtbl.create 255
   let potential_merge : (lit, IdSet.t) Hashtbl.t = Hashtbl.create 255
@@ -94,11 +95,28 @@ struct
     Hashtbl.replace potential_merge lit
     @@ IdSet.remove ch.id former_potential_merges
 
+  let incr_nbref c =
+    let n =
+      try
+        Hashtbl.find clause_to_nbref c
+      with Not_found -> 0
+    in
+    Hashtbl.replace clause_to_nbref c @@ n + 1
+
+  let decr_nbref c =
+    try
+      let n = Hashtbl.find clause_to_nbref c in
+      if n <= 1 then Hashtbl.remove clause_to_nbref c
+      else Hashtbl.replace clause_to_nbref c @@ n - 1;
+      n - 1 
+    with Not_found -> 0
+      
   let add_id id c = 
     Format.(fprintf err_formatter "@[Adding id %a@]@."
               pp_id id 
     );
     Hashtbl.add id_to_clause id c;
+    incr_nbref c;
     iter_id (fun i -> add_reverse i id) id
 
   let add ch =
@@ -157,12 +175,14 @@ struct
     begin
     try
        let c = Hashtbl.find id_to_clause id in
+       let n = decr_nbref c in
        let ch = Hashtbl.find clause_to_ch c in
-       if ch.id = id then remove_potential_merge ch
+       if n <= 0 then Hashtbl.remove clause_to_ch c;
+       if ch.id = id then
+         remove_potential_merge ch
     with Not_found -> ()
     end;
     Hashtbl.remove id_to_clause id
-    
         
   let remove_all id =
     Format.(fprintf err_formatter "@[<v2>Deleting clause %a"
@@ -174,12 +194,11 @@ struct
     | Base i ->
        try
          let s = Hashtbl.find reverse i in
+         Hashtbl.remove reverse i;
          IdSet.iter remove_sub s
        with Not_found -> () end;
     Format.(fprintf err_formatter "@]@.")
          
-  (*TODO : remove potential merges *)
-
   let remove not_the_clause id =
     let clause = Hashtbl.find id_to_clause id in
     Hashtbl.remove id_to_clause id;
@@ -668,12 +687,11 @@ let define_clauses ch =
   if IdMap.is_empty ch.rats then
     push_or_virtual ch
   else begin
+    CM.add ch;
     IdMap.iter
       (fun i p ->
         Format.(fprintf err_formatter "RATing %a@."
                   pp_id i);
-        (* CM.iter_all i (fun ci -> Format.(fprintf err_formatter
-           "Trying %a@."  pp_id ci.id); *)
         if CM.not_rat @@ merge_ids ch.id i then
           Format.(fprintf err_formatter "Not doing %a@." pp_id i)
         else
@@ -683,6 +701,6 @@ let define_clauses ch =
           | Some c -> 
              push_or_virtual c
       )
-        ch.rats;
-        do_potential_merges ch
+      ch.rats;
+    do_potential_merges ch;
   end
