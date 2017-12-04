@@ -4,7 +4,7 @@ open Ipl
 module IdSet = Set.Make(struct type t = id let compare = compare end)
 
 let push_decl (Let_clause(i,_ ,_) as ct) =
-  Format.(fprintf err_formatter "Pushing %a@." pp_id i);
+  Format.(fprintf err_formatter "Pushing %a@." pp_id i)[@noopt];
   Format.(fprintf Globals.dedukti_out "%a@." Proof_steps.pp_clause_term ct)
 
 exception Tautology of lit
@@ -63,7 +63,7 @@ struct
   let add_reverse i id =
     Format.(fprintf err_formatter "@[Reverse link %i -> %a@]@."
               i  pp_id id
-    );
+    )[@noopt];
     let s =
       try
         Hashtbl.find reverse i
@@ -81,7 +81,7 @@ struct
     in
     Format.(fprintf err_formatter "@[Adding %a for merge with lit %i@]@."
               pp_id ch.id lit
-    );
+    )[@noopt];
     Hashtbl.replace potential_merge lit
     @@ IdSet.add ch.id former_potential_merges
 
@@ -114,7 +114,7 @@ struct
   let add_id id c = 
     Format.(fprintf err_formatter "@[Adding id %a@]@."
               pp_id id 
-    );
+    )[@noopt];
     Hashtbl.add id_to_clause id c;
     incr_nbref c;
     iter_id (fun i -> add_reverse i id) id
@@ -123,8 +123,8 @@ struct
     add_id ch.id ch.clause;
     Format.(fprintf err_formatter "@[Adding clause %a@]@."
               pp_id ch.id 
-    );
-    if not_rat ch.id then 
+    )[@noopt];
+    if[@noopt] not_rat ch.id then 
       Format.(fprintf err_formatter "@[Warning: clause %a already present as %a@]@."
                 pp_id ch.id  pp_id (Hashtbl.find clause_to_ch ch.clause).id
       );
@@ -135,7 +135,7 @@ struct
   let replace ch =
     Format.(fprintf err_formatter "@[Replacing clause %a@]@."
               pp_id ch.id 
-    );
+    )[@noopt];
     (*assert (Hashtbl.mem clause_to_ch ch.clause);*)
     Hashtbl.replace clause_to_ch ch.clause ch;
     if not @@ IdMap.is_empty ch.rats then
@@ -171,7 +171,7 @@ struct
   let remove_sub id =
     Format.(fprintf err_formatter "@ @[Sub deleting clause %a@]"
               pp_id id 
-    );
+    )[@noopt];
     begin
     try
        let c = Hashtbl.find id_to_clause id in
@@ -187,7 +187,7 @@ struct
   let remove_all id =
     Format.(fprintf err_formatter "@[<v2>Deleting clause %a"
               pp_id id 
-    );
+    )[@noopt];
     begin
     match id with
     | Quotient _ -> failwith "Trying to remove non base clause"
@@ -197,7 +197,7 @@ struct
          Hashtbl.remove reverse i;
          IdSet.iter remove_sub s
        with Not_found -> () end;
-    Format.(fprintf err_formatter "@]@.")
+    Format.(fprintf err_formatter "@]@.")[@noopt]
          
   let remove not_the_clause id =
     let clause = Hashtbl.find id_to_clause id in
@@ -227,7 +227,7 @@ struct
     let ch = Hashtbl.find clause_to_ch c in
     Format.(fprintf err_formatter "@[<v2>Associating %a with %a@]@."
               pp_id id  pp_id ch.id
-    );
+    )[@noopt];
     add_id id ch.clause
       
 end  
@@ -506,7 +506,7 @@ and merge_rat crat coth rup =
     begin
       Format.(fprintf err_formatter "Merging clauses %a and %a@."
                 pp_cid crat.id
-                pp_cid coth.id);
+                pp_cid coth.id)[@noopt];
       Some c
     end
       
@@ -532,17 +532,18 @@ and do_potential_merges c =
         with
           Not_found -> pm)
       IdSet.empty c.as_list in
+  begin[@noopt]
   Format.(fprintf err_formatter "@[Potential merges for %a:" pp_id c.id);
   IdSet.iter (Format.(fprintf err_formatter " %a" pp_id)) potential_merges;
-  Format.(fprintf err_formatter "@]@.");
+  Format.(fprintf err_formatter "@]@.") end;
   IdSet.iter
     (fun j ->
       if not @@ occurs_in_id j c.id then 
         try
           let _ =
-            Format.(fprintf err_formatter "potential merge %a %a@." pp_id c.id pp_id j) in
+            Format.(fprintf err_formatter "potential merge %a %a@." pp_id c.id pp_id j)[@noopt] in
           let crat = try CM.find  j
-            with Not_found -> Format.(fprintf err_formatter "Not_found : %a@." pp_cid j); raise Not_found
+            with Not_found -> Format.(fprintf err_formatter "Not_found : %a@." pp_cid j)[@noopt]; raise Not_found
           in
           if IdMap.is_empty c.rats then
             if CM.not_rat @@ merge_ids crat.id c.id then () else
@@ -558,7 +559,7 @@ and do_potential_merges c =
                          { crat with rats = IdMap.add c.id [] crat.rats } in
                        CM.replace new_crat
                    end
-              with Not_found -> (Format.(fprintf err_formatter "Failed to construct clause %a vs %a@." pp_cid crat.id pp_cid c.id);
+              with Not_found -> (Format.(fprintf err_formatter "Failed to construct clause %a vs %a@." pp_cid crat.id pp_cid c.id)[@noopt];
                                  CM.remove already_there @@ merge_ids crat.id c.id
               )
           else
@@ -566,7 +567,7 @@ and do_potential_merges c =
             (* already there, and RAT *)
             else 
               begin
-                Format.(fprintf err_formatter "New RAT clause : %a vs %a@." pp_cid crat.id pp_cid c.id);
+                Format.(fprintf err_formatter "New RAT clause : %a vs %a@." pp_cid crat.id pp_cid c.id)[@noopt];
                 match virtual_rat crat c with
                   None -> ()
                 | Some cv -> 
@@ -591,7 +592,7 @@ and do_potential_merges c =
                    ) end
         with
           Not_found -> (* j is no longer in the global table, so it is probably not needed *)
-            Format.(fprintf err_formatter "failed merge %a %a@." pp_id c.id pp_id j))
+            Format.(fprintf err_formatter "failed merge %a %a@." pp_id c.id pp_id j)[@noopt])
     potential_merges
 
 and virtual_rat crat coth =
@@ -620,22 +621,22 @@ and virtual_rat crat coth =
 
 and push_or_virtual ch =
   try
-    Format.(fprintf err_formatter "Trying to push %a@." pp_id ch.id);
+    Format.(fprintf err_formatter "Trying to push %a@." pp_id ch.id)[@noopt];
     begin
       try
         push_decl @@ Let_clause(ch.id, ch.as_list, prepare_rup ch);
-        Format.(fprintf err_formatter "Pushed %a@." pp_id ch.id);
+        Format.(fprintf err_formatter "Pushed %a@." pp_id ch.id)[@noopt];
         CM.add ch;
         do_potential_merges ch
       with
         Not_RUP ->
-          Format.(fprintf err_formatter "Not able to construct %a@." pp_id ch.id);
+          Format.(fprintf err_formatter "Not able to construct %a@." pp_id ch.id)[@noopt];
     end;
   with
     Need_rat(i,rat_id) ->
       Format.(fprintf err_formatter "Virtual RAT clause %a with %i and %a.@."
                 pp_id ch.id i pp_id rat_id
-      );
+      )[@noopt];
       (* if Ptset.is_empty @@ snd ch.id then *)
       let crat = CM.find rat_id in
       let begin_rup, end_rup = split_rup ch.rup rat_id in
@@ -643,7 +644,7 @@ and push_or_virtual ch =
         List.map (fun j ->
           let cj = CM.find j in
           if (not (IdMap.is_empty cj.rats)) && i = List.hd cj.as_list
-          then Format.(fprintf err_formatter "updating %a %a@." pp_id cj.id pp_id k; merge_ids cj.id k)
+          then (Format.(fprintf err_formatter "updating %a %a@." pp_id cj.id pp_id k)[@noopt]; merge_ids cj.id k)
           else j)
         end_rup)
         crat.rats in
@@ -661,17 +662,17 @@ and push_or_virtual ch =
           if not @@ occurs_in_id i ch.id then 
             begin
               Format.(fprintf err_formatter "VRATing %a@."
-                        pp_id i);
+                        pp_id i)[@noopt];
               (*          if not @@ occurs_in_id i ch.id then*)
               if CM.exists i then 
                 let ci = CM.find i in
                 if CM.not_rat @@ merge_ids ch.id ci.id then
-                  Format.(fprintf err_formatter "Not doing %a@." pp_id ci.id)
+                  Format.(fprintf err_formatter "Not doing %a@." pp_id ci.id)[@noopt]
                 else
                   match make_rat new_clause ci with
                     None -> ()
                   | Some c -> 
-                     Format.(fprintf err_formatter "Was here %a@." pp_id c.id);
+                     Format.(fprintf err_formatter "Was here %a@." pp_id c.id)[@noopt];
                     push_or_virtual c;
             end
         )
@@ -683,7 +684,7 @@ and push_or_virtual ch =
     
 let define_clauses ch =
   Format.(fprintf err_formatter "Beginning clause %a@."
-            pp_id ch.id);
+            pp_id ch.id)[@noopt];
   if IdMap.is_empty ch.rats then
     push_or_virtual ch
   else begin
@@ -691,9 +692,9 @@ let define_clauses ch =
     IdMap.iter
       (fun i p ->
         Format.(fprintf err_formatter "RATing %a@."
-                  pp_id i);
+                  pp_id i)[@noopt];
         if CM.not_rat @@ merge_ids ch.id i then
-          Format.(fprintf err_formatter "Not doing %a@." pp_id i)
+          Format.(fprintf err_formatter "Not doing %a@." pp_id i)[@noopt]
         else
           let ci = CM.find i in        
           match make_rat ch ci with

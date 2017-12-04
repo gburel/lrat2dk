@@ -18,6 +18,7 @@ let read_cnf f =
     done
   with End_of_file ->
     close_in ic;
+    Printf.printf "Read CNF file %s\n" f;
     let open Format in
     let open PP in
     begin_proof Globals.dedukti_out nb_clauses
