@@ -12,7 +12,7 @@ type proof_term =
   | Tauto of lit
       
 type clause_term =
-    Let_clause of id * lit list * proof_term
+    Let_clause of id * Ptset.t * proof_term
 
 open Format
 
@@ -94,9 +94,9 @@ struct
 
   let pp_clause_term ppf = function
   | Let_clause (i, l, pt) ->
-     fprintf ppf "@[let_clause@ %a @]@[("
-       pp_clause_par_dk l;
-     List.iter (fprintf ppf "%a =>@ " pp_termlit) l;
+     fprintf ppf "@[let_clause@ (%a) @]@[("
+       pp_clause_dk l;
+     Ptset.fold (fun i _ -> fprintf ppf "%a =>@ " pp_termlit i) l ();
      fprintf ppf "@[<2>%a@])@]" pp_proof_term pt;
      incr nb_parens;
      fprintf ppf "(%a =>@." pp_cid i
@@ -118,10 +118,10 @@ module Proof_steps : PP = struct
 
   let pp_clause_term ppf = function
     | Let_clause (i, l, pt) ->
-       fprintf ppf "@[def %a@ :@ @[embed %a@]@ :=@]@."
+       fprintf ppf "@[def %a@ :@ @[embed (%a)@]@ :=@]@."
          pp_cid i
-         pp_clause_par_dk l;
-      List.iter (fprintf ppf "@[%a =>@ " pp_termlit) l;
+         pp_clause_dk l;
+      Ptset.fold (fun i _ -> fprintf ppf "@[%a =>@ " pp_termlit i) l ();
       fprintf ppf "@[%a@]@].@."pp_proof_term pt
 
   let end_proof ppf last_id =

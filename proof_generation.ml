@@ -13,7 +13,7 @@ let read_cnf f =
     while true do
       let c = Dimacs_lexer.line lexbuf in
       Format.(fprintf Globals.dedukti_out  "@[def C%a : clause :=@ %a.@]@."
-                pp_id c.id Lrat_types.pp_clause_dk c.as_list);
+                pp_id c.id Lrat_types.pp_clause_dk c.clause);
       Lrat_ipl.CM.add c
     done
   with End_of_file ->

@@ -20,9 +20,8 @@ let rec find_tauto clause =
 
 let create_tauto id clause =
   let i = find_tauto clause in
-  let as_list = Ptset.fold (fun i l -> i::l) clause [] in
-  let ch = { id; clause; as_list; rup = []; rats = IdMap.empty } in
-  push_decl (Let_clause(id, as_list, Tauto i));
+  let ch = { id; clause; pivot = None; rup = []; rats = IdMap.empty } in
+  push_decl (Let_clause(id, ch.clause, Tauto i));
   ch
              
 
@@ -72,7 +71,7 @@ struct
     Hashtbl.replace reverse i (IdSet.add id s) 
 
   let add_potential_merge ch =
-    let lit = List.hd ch.as_list in
+    let lit = get_pivot ch in
     let former_potential_merges =
       try
         Hashtbl.find potential_merge lit
@@ -86,7 +85,7 @@ struct
     @@ IdSet.add ch.id former_potential_merges
 
   let remove_potential_merge ch = 
-    let lit = List.hd ch.as_list in
+    let lit = get_pivot ch in
     let former_potential_merges =
       try
         Hashtbl.find potential_merge lit
@@ -147,7 +146,7 @@ struct
     | Quotient (a,b) ->
        let coth = find a in
        let crat = find b in
-       let first_lit = List.hd crat.as_list in
+       let first_lit = get_pivot crat in
        assert (Ptset.mem (-first_lit) coth.clause);
        let coth_minus = Ptset.remove (-first_lit) coth.clause in
        let clause = Ptset.union crat.clause coth_minus in
@@ -178,7 +177,7 @@ struct
        let n = decr_nbref c in
        let ch = Hashtbl.find clause_to_ch c in
        if n <= 0 then Hashtbl.remove clause_to_ch c;
-       if ch.id = id then
+       if ch.id = id && ch.pivot <> None then
          remove_potential_merge ch
     with Not_found -> ()
     end;
@@ -235,14 +234,13 @@ end
     
   
   
-let array_of_list_map f = function
-    [] -> [||]
-  | hd::tl as l ->
-      let a = Array.make (List.length l) (f hd) in
-      let rec fill i = function
-          [] -> a
-        | hd::tl -> Array.unsafe_set a i (f hd); fill (i+1) tl in
-      fill 1 tl
+let array_of_ptset_map f c =
+  let s = Ptset.choose c in
+  let a = Array.make (Ptset.cardinal c) (f s) in
+  let i = Ptset.fold (fun s i -> Array.unsafe_set a i (f s); i+1)
+    c 0 in
+  assert (i = Ptset.cardinal c);
+  a
 
 exception Need_rat of lit * id
 exception Not_RUP
@@ -255,7 +253,7 @@ let rec obtain_concrete e ch =
   if IdMap.is_empty ch.rats then
     ch
   else
-    match Env.find (List.hd ch.as_list) e with
+    match Env.find (get_pivot ch) e with
     | From_clause j' | From_rat j' ->
        begin
          assert (CM.exists @@ merge_ids ch.id j');
@@ -269,7 +267,7 @@ let rec obtain_concrete e ch =
             let ch' = CM.find (merge_ids ch.id base) in
             obtain_concrete e ch'
          | _ -> 
-             raise (Need_rat(List.hd ch.as_list, ch.id))
+             raise (Need_rat(get_pivot ch, ch.id))
        end         
     | From_pred ->
        raise (Delay ch.id)
@@ -307,11 +305,10 @@ let rec arg_from_env e cid i =
 and make_core e ch =
   assert (IdMap.is_empty ch.rats); (* do not use RAT clause in proofs *)
   Core (ch.id,
-        array_of_list_map (arg_from_env e ch.id) ch.as_list)
+        array_of_ptset_map (arg_from_env e ch.id) ch.clause)
 
-let unit_propagation c invmodel =
-  List.fold_left (fun cr i -> Ptset.remove i cr)
-    c invmodel
+let unit_propagation =
+  Ptset.fold Ptset.remove
     
 
     
@@ -335,7 +332,7 @@ let rec rup_rat e invmodel = function
   | [] -> raise Not_RUP
   | i::q ->
      let ci = CM.find i in
-     let propagated = unit_propagation ci.clause invmodel in
+     let propagated = unit_propagation invmodel ci.clause in
      (* unit propagation should falsify all but at most one literal *)
      assert (Ptset.cardinal propagated <= 1);
      match
@@ -346,14 +343,14 @@ let rec rup_rat e invmodel = function
        with Not_found -> None (* unit propagation leads to a contradiction *)
      with
        Some new_lit -> 
-         let new_invmodel = (-new_lit)::invmodel in
+         let new_invmodel = Ptset.add (-new_lit) invmodel in
          find_concrete ci e new_lit new_invmodel q
      | None -> 
         if IdMap.is_empty ci.rats
         then (* parent is a RUP clause *)
           Qed (make_core e ci)
         else
-          let first_lit = List.hd ci.as_list in
+          let first_lit = get_pivot ci in
           match  Env.find first_lit e with
             From_clause first_lit_from ->
               let ch = 
@@ -378,7 +375,7 @@ let rec rup_rat e invmodel = function
                   else 
                   (* first_literal of the RAT clause can nonetheless be obtained *)
                     let new_e_lit = Env.add (-first_lit) (From_rat i) e in
-                    let new_invmodel = (-first_lit)::invmodel in
+                    let new_invmodel = Ptset.add (-first_lit) invmodel in
                     rup_rat new_e_lit new_invmodel q
              end
           | From_pred | From_rat _ | From_subrat _ -> failwith "ohoh"
@@ -398,11 +395,11 @@ and find_concrete ci e new_lit new_invmodel q =
           Base _ -> new_e_lit
         | Quotient(a,b) ->
            let cb = CM.find b in
-           let first_lit = List.hd cb.as_list in
+           let first_lit = get_pivot cb in
            if Env.mem first_lit new_e_lit then
              new_e_lit
            else
-             Env.add (List.hd cb.as_list) (From_subrat a) new_e_lit in
+             Env.add first_lit (From_subrat a) new_e_lit in
       rup_rat new_e_lit new_invmodel q
 
         
@@ -457,7 +454,7 @@ and find_concrete ci e new_lit new_invmodel q =
 
         
 and make_rat crat coth =
-  let first_lit = List.hd crat.as_list in
+  let first_lit = get_pivot crat in
   if not @@ Ptset.mem (-first_lit) coth.clause then None
   else
     try
@@ -479,10 +476,10 @@ and update_rup_with_rat crat tocreate_id rup  =
       else begin
         (*        if not (CM.exists i) then raise Not_RUP; *)
         let ci = CM.find i in
-        if Ptset.mem (-List.hd crat.as_list) ci.clause then
+        if Ptset.mem (-get_pivot crat) ci.clause then
           let bid = get_base i in
           let cbid = CM.find bid in
-          if Ptset.mem (List.hd crat.as_list) cbid.clause then
+          if Ptset.mem (get_pivot crat) cbid.clause then
             bid
           else
             merge_ids crat.id i
@@ -492,8 +489,8 @@ and update_rup_with_rat crat tocreate_id rup  =
 
     
 and merge_rat crat coth rup =
-  assert (crat.as_list <> []);
-  let first_lit = List.hd crat.as_list in
+  assert (crat.pivot <> None);
+  let first_lit = get_pivot crat in
   assert (Ptset.mem (-first_lit) coth.clause);
   let coth_minus = Ptset.remove (-first_lit) coth.clause in
   let clause = Ptset.union crat.clause coth_minus in
@@ -501,8 +498,7 @@ and merge_rat crat coth rup =
   if CM.not_rat_clause clause
   then (CM.link_id id clause; None)
   else 
-    let as_list = Ptset.fold (fun i l -> i::l) clause [] in
-    let c = { id; clause; as_list; rats = IdMap.empty; rup } in
+    let c = { id; clause; pivot = None; rats = IdMap.empty; rup } in
     begin
       Format.(fprintf err_formatter "Merging clauses %a and %a@."
                 pp_cid crat.id
@@ -512,11 +508,11 @@ and merge_rat crat coth rup =
       
 and prepare_rup c =
   let r =  try
-             let invmodel = c.as_list in
-             let e = List.fold_left (fun e i ->
+             let invmodel = c.clause in
+             let e = Ptset.fold (fun i e ->
                if Env.mem (-i) e then raise (Tautology i)
                else Env.add i (From_self c.id) e)
-               Env.empty c.as_list in
+               c.clause Env.empty in
              rup_rat e invmodel c.rup
     with
       Tautology i -> Tauto i
@@ -525,13 +521,13 @@ and prepare_rup c =
     
 and do_potential_merges c =
   let potential_merges =
-    List.fold_left
-      (fun pm i ->
+    Ptset.fold
+      (fun i pm ->
         try
           IdSet.union (CM.potential_merges @@ -i) pm
         with
           Not_found -> pm)
-      IdSet.empty c.as_list in
+      c.clause IdSet.empty in
   begin[@noopt]
   Format.(fprintf err_formatter "@[Potential merges for %a:" pp_id c.id);
   IdSet.iter (Format.(fprintf err_formatter " %a" pp_id)) potential_merges;
@@ -596,35 +592,25 @@ and do_potential_merges c =
     potential_merges
 
 and virtual_rat crat coth =
-  let first_lit_crat = List.hd crat.as_list in
-  let first_lit_coth = List.hd coth.as_list in
+  let first_lit_crat = get_pivot crat in
+  let first_lit_coth = get_pivot coth in
   let id = merge_ids crat.id coth.id in
-  if first_lit_crat = - first_lit_coth then
-    let clause = Ptset.union (Ptset.remove first_lit_coth coth.clause) crat.clause in
-    assert (CM.mem_clause clause);
-    CM.link_id id clause;
-    None
-  else
-    let coth_minus = Ptset.remove first_lit_coth @@
-      Ptset.remove (-first_lit_crat) coth.clause in
-    let clause_minus = Ptset.union crat.clause coth_minus in
-    let as_list_minus = Ptset.fold (fun i l -> i::l) clause_minus [] in
-    let as_list = first_lit_coth :: as_list_minus in
-    let clause = Ptset.add first_lit_coth clause_minus in
-    if CM.mem_clause clause
-    then (CM.link_id id clause; None)
-    else 
-      let rup = update_rup_with_rat crat coth.id coth.rup in
-      let filtered_rats = IdMap.filter (fun id _ -> CM.exists id) coth.rats in
-      let rats = IdMap.map (update_rup_with_rat crat coth.id) filtered_rats in
-      Some { id; clause; as_list; rats; rup }
+  let clause = Ptset.union (Ptset.remove (-first_lit_crat) coth.clause) crat.clause in
+  assert (first_lit_crat <> - first_lit_coth || CM.mem_clause clause);
+  if CM.mem_clause clause
+  then (CM.link_id id clause; None)
+  else 
+    let rup = update_rup_with_rat crat coth.id coth.rup in
+    let filtered_rats = IdMap.filter (fun id _ -> CM.exists id) coth.rats in
+    let rats = IdMap.map (update_rup_with_rat crat coth.id) filtered_rats in
+    Some { id; clause; pivot = Some first_lit_coth; rats; rup }
 
 and push_or_virtual ch =
   try
     Format.(fprintf err_formatter "Trying to push %a@." pp_id ch.id)[@noopt];
     begin
       try
-        push_decl @@ Let_clause(ch.id, ch.as_list, prepare_rup ch);
+        push_decl @@ Let_clause(ch.id, ch.clause, prepare_rup ch);
         Format.(fprintf err_formatter "Pushed %a@." pp_id ch.id)[@noopt];
         CM.add ch;
         do_potential_merges ch
@@ -643,14 +629,14 @@ and push_or_virtual ch =
       let new_rats = IdMap.mapi (fun k _ -> merge_ids rat_id k::
         List.map (fun j ->
           let cj = CM.find j in
-          if (not (IdMap.is_empty cj.rats)) && i = List.hd cj.as_list
+          if (not (IdMap.is_empty cj.rats)) && i = get_pivot cj
           then (Format.(fprintf err_formatter "updating %a %a@." pp_id cj.id pp_id k)[@noopt]; merge_ids cj.id k)
           else j)
         end_rup)
         crat.rats in
       let new_rats = IdMap.filter (fun j _ -> CM.exists j) new_rats in
       let new_clause =
-        { ch with as_list = i::(remove_rev i ch.as_list);
+        { ch with pivot = Some i;
           rup = begin_rup;
           rats = new_rats
         }

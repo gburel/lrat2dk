@@ -33,8 +33,8 @@ module IdMap = Map.Make(struct type t = id let compare = compare end)
   
 type clause_hist =
   { id : id;
-    as_list : lit list;
     clause : clause;
+    pivot : lit option;
     rup : id list;
     rats : (id list) IdMap.t
   }
@@ -43,6 +43,13 @@ type line =
     Delete of id list
   | Rat of clause_hist
       
+exception Not_a_RAT
+  
+let get_pivot ch =
+  match ch.pivot with
+    Some l -> l
+  | None -> raise Not_a_RAT
+
 let print_clause c =
   Ptset.iter (Printf.printf "%i ") c
 
@@ -62,19 +69,17 @@ let pp_lit_dk ppf i =
   else
     fprintf ppf "(not p%d)" (-i)
 
-let rec pp_clause_par_dk ppf l =
-  match l with
-    [] -> fprintf ppf "empty"
-  | x :: q -> fprintf ppf "@[(add %a@ %a)@]"
-     pp_lit_dk x pp_clause_par_dk q
-      
-let pp_clause_dk ppf l =
-  match l with
-    [] -> fprintf ppf "empty"
-  | x :: q -> fprintf ppf "@[add %a@ %a@]"
-     pp_lit_dk x pp_clause_par_dk q
 
-
+let pp_clause_dk ppf c =
+  let nb_par = Ptset.fold (fun lit i ->
+    if i > 0 then fprintf ppf "(";
+    fprintf ppf "add@ %a@ "
+      pp_lit_dk lit;
+    i+1) c 0 in
+  fprintf ppf "empty";
+  for i = 2 to nb_par do
+    fprintf ppf ")"
+  done
 
 type env_lit =
   | From_clause of id

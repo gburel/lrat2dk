@@ -5,15 +5,15 @@ let nat = ['0'-'9']+
 let int = '-'?nat
 let space = [' ''\t']
   
-rule litsnl as_list clause = parse
-  [' ''\t']+ { litsnl as_list clause lexbuf }
+rule litsnl clause = parse
+  [' ''\t']+ { litsnl clause lexbuf }
 | '0'+[' ''\t']*'\n' {
   let id = base_id (Lexing.(lexbuf.lex_start_p.pos_lnum)) in
-  let r = { id; as_list = List.rev as_list; clause; rup = []; rats = IdMap.empty } in
+  let r = { id; clause; pivot = None; rup = []; rats = IdMap.empty } in
   Lexing.new_line lexbuf; r }
 | int as s {
   let n = int_of_string s in
-  litsnl (n::as_list) (Ptset.add n clause) lexbuf }
+  litsnl (Ptset.add n clause) lexbuf }
 | eof { raise End_of_file }
 
 and first_line = parse     
@@ -21,5 +21,5 @@ and first_line = parse
     int_of_string v, int_of_string c
   }
 {
-   let line = litsnl [] Ptset.empty     
+   let line = litsnl Ptset.empty
 }      
