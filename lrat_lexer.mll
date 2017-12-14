@@ -18,14 +18,22 @@ and rats id clause pivot rup otherid cur_accu rats_accu = parse
 | '-'(nat as n) { rats id clause pivot rup (base n) [] (IdMap.add otherid (List.rev cur_accu) rats_accu) lexbuf }
 | nat as n { rats id clause pivot rup otherid (base n::cur_accu) rats_accu lexbuf }
 
-and rup id clause pivot accu = parse
-  [' ''\t']+ { rup id clause pivot accu lexbuf }
+and rup_cont id clause pivot accu = parse
+  [' ''\t']+ { rup_cont id clause pivot accu lexbuf }
 | '0'+[' ''\t']*'\n' { Lexing.new_line lexbuf;
                        Rat { id; clause; pivot = None;
                              rup = List.rev accu; rats = IdMap.empty } }
 | '-'(nat as n) { rats id clause pivot (List.rev accu) (base n) [] IdMap.empty lexbuf }
-| nat as n { rup id clause pivot (base n :: accu) lexbuf }
-    
+| nat as n { rup_cont id clause pivot (base n :: accu) lexbuf }
+
+and rup id clause pivot accu = parse
+  [' ''\t']+ { rup id clause pivot accu lexbuf }
+| '0'+[' ''\t']*'\n' { Lexing.new_line lexbuf;
+                       Rat { id; clause; pivot = Some pivot;
+                             rup = List.rev accu; rats = IdMap.empty } }
+| '-'(nat as n) { rats id clause pivot (List.rev accu) (base n) [] IdMap.empty lexbuf }
+| nat as n { rup_cont id clause pivot (base n :: accu) lexbuf }
+
 and line_accu id accu pivot = parse
   [' ''\t']+ { line_accu id accu pivot lexbuf }
 | '0' { rup id accu pivot [] lexbuf }

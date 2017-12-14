@@ -118,14 +118,14 @@ module Proof_steps : PP = struct
 
   let pp_clause_term ppf = function
     | Let_clause (i, l, pt) ->
-       fprintf ppf "@[def %a@ :@ @[embed (%a)@]@ :=@]@."
+       fprintf ppf "@[thm %a@ :@ @[embed (%a)@]@ :=@]@."
          pp_cid i
          pp_clause_dk l;
       Ptset.fold (fun i _ -> fprintf ppf "@[%a =>@ " pp_termlit i) l ();
       fprintf ppf "@[%a@]@].@."pp_proof_term pt
 
   let end_proof ppf last_id =
-    fprintf ppf "@[def proof : eps bot := %a.@]@." pp_cid last_id
+    fprintf ppf "@[thm proof : eps bot := %a.@]@." pp_cid last_id
 
 end
       

@@ -50,6 +50,11 @@ let get_pivot ch =
     Some l -> l
   | None -> raise Not_a_RAT
 
+let is_RAT ch =
+  match ch.pivot with
+    Some _ -> true
+  | None -> false
+     
 let print_clause c =
   Ptset.iter (Printf.printf "%i ") c
 
