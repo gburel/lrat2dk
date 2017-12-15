@@ -12,9 +12,16 @@ type proof_term =
   | Tauto of lit
       
 type clause_term =
-    Let_clause of id * Ptset.t * proof_term
-
+    Let_clause of id * clause * proof_term
+  | Declare_clause of id * clause
+      
 open Format
+
+let declare_preds ppf l u = 
+  for i = l to u do
+    fprintf ppf "p%d : o.@." i
+  done;
+  Globals.max_pred := u
 
 let pp_termpred ppf i = if i > 0 then
     fprintf ppf "tp%d" i
@@ -100,7 +107,8 @@ struct
      fprintf ppf "@[<2>%a@])@]" pp_proof_term pt;
      incr nb_parens;
      fprintf ppf "(%a =>@." pp_cid i
-
+  | Declare_clause (i, l) -> failwith "Declaration of clauses not allowed in one-proof format"
+      
   let end_proof ppf last_id =
     pp_cid ppf last_id;
     for i = 1 to !nb_parens do
@@ -123,7 +131,11 @@ module Proof_steps : PP = struct
          pp_clause_dk l;
       Ptset.fold (fun i _ -> fprintf ppf "@[%a =>@ " pp_termlit i) l ();
       fprintf ppf "@[%a@]@].@."pp_proof_term pt
-
+    | Declare_clause (i, l) -> 
+       fprintf ppf "@[%a@ :@ @[embed (%a)@].@]@."
+         pp_cid i
+         pp_clause_dk l
+        
   let end_proof ppf last_id =
     fprintf ppf "@[thm proof : eps bot := %a.@]@." pp_cid last_id
 

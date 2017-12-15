@@ -6,9 +6,7 @@ let read_cnf f =
   let ic = open_in f in
   let lexbuf = Lexing.from_channel ic in
   let nb_vars, nb_clauses = Dimacs_lexer.first_line lexbuf in
-  for i = 1 to nb_vars do
-    Format.fprintf Globals.dedukti_out "p%d : o.@." i
-    done;
+  Ipl.declare_preds Globals.dedukti_out 1 nb_vars;
   try
     while true do
       let c = Dimacs_lexer.line lexbuf in
@@ -36,8 +34,13 @@ let read_lrat f =
       match line with
         Delete l ->  List.iter (Lrat_ipl.CM.remove_all) l 
       | Rat ( {id; clause; rup } as ch) ->
-        Lrat_ipl.define_clauses ch;
-        last_id := id
+         let ch,id = if Lrat_ipl.CM.exists id then
+             let id = base_id @@
+               let Base i = get_base !last_id in i + 1 in
+             { ch with id }, id
+           else ch,id in
+         Lrat_ipl.define_clauses ch;
+         last_id := id
     done
   with End_of_file ->
     close_in ic;
