@@ -6,10 +6,10 @@ let space = [' ''\t''\n']
   
 rule read_decl = parse
   space+ { read_decl lexbuf }
-| "def"space+'c'(id as id) {
+| "thm"space+'c'(id as id) {
   Hashtbl.add tbl id ();
   remove_used lexbuf }
-| "def"space+"proof" {
+| "thm"space+"proof" {
   remove_used lexbuf }
 | _ { other_decl lexbuf }      
 | eof { () }
