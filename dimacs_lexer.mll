@@ -14,12 +14,14 @@ rule litsnl clause = parse
 | int as s {
   let n = int_of_string s in
   litsnl (Ptset.add n clause) lexbuf }
+| 'c'[^'\n']*'\n' { litsnl clause lexbuf }
 | eof { raise End_of_file }
 
 and first_line = parse     
   'p'space+"cnf"space+(nat as v)space+(nat as c)space*'\n' {
     int_of_string v, int_of_string c
   }
+| 'c'[^'\n']*'\n' { first_line lexbuf }
 {
    let line = litsnl Ptset.empty
 }      
