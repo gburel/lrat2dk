@@ -19,7 +19,7 @@ globals.cmo: globals.cmi
 %.cmi: %.mli
 	ocamlc -c $<
 
-OBJ=ptset.cmo lrat_types.cmo globals.cmo dimacs_lexer.cmo lrat_lexer.cmo ipl.cmo lrat_ipl.cmo proof_generation.cmo
+OBJ=ptset.cmo deleted_lexer.cmo lrat_types.cmo globals.cmo dimacs_lexer.cmo lrat_lexer.cmo ipl.cmo lrat_ipl.cmo proof_generation.cmo
 
 lrat2dk: $(OBJ)
 	ocamlc $(OCAMLCFLAGS) -o $@ $(OBJ)
