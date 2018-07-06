@@ -1,5 +1,3 @@
-#NAME example.
-
 o : Type.
 
 def eps : o -> Type.
@@ -48,4 +46,9 @@ def let_clause : c : clause -> embed c -> (embed c -> eps bot) -> eps bot.
 
 def let_o : p : o -> eps p -> (eps p -> eps bot) -> eps bot.
 [c, t, u] let_o c t u --> u t.
+
+def and_clause : clause -> o.
+[] and_clause empty --> bot.
+[p,c] and_clause (add p c) --> imp p (and_clause c).
+
 

@@ -14,6 +14,9 @@ type proof_term =
 type clause_term =
     Let_clause of id * clause * proof_term
   | Declare_clause of id * clause
+  | Extended_lit_def of extended_lit * lit * clause
+  | Implied_clause of extended_clause * extended_lit * clause
+  | Subst_clause of extended_clause * lit * extended_lit * clause
       
 open Format
 
@@ -33,15 +36,15 @@ let pp_termlit ppf i = if i > 0 then
   else
     fprintf ppf "tnl%d" (-i)
 
-let pp_not_lit ppf i = if i > 0 then
-    fprintf ppf "(not p%d)" i
-  else
-    fprintf ppf "(not (not p%d))" (-i)
+let pp_not_lit ppf i =
+  fprintf ppf "(not %a)" pp_lit_dk i
 
-let pp_liftpred ppf i = if i > 0 then
-    fprintf ppf "tl%d" i
+
+let pp_liftpred ppf i =
+  if is_pos (find_extended_lit i) then
+    pp_termpred ppf (-i)
   else
-    fprintf ppf "(lift p%d tp%d)" (-i) (-i)
+    fprintf ppf "(lift %a %a)" pp_lit_dk (-i) pp_termpred (-i)
 
       
 let rec pp_core ppf = function
@@ -57,6 +60,20 @@ and pp_arg ppf =  function
        pp_termpred l
        pp_core c
 
+let pp_subst_lit_dk p el ppf i =
+  if i = p then pp_el_dk ppf el
+  else pp_lit_dk ppf i
+
+let pp_subst_clause_dk p el ppf c = 
+  let nb_par = Ptset.fold (fun lit i ->
+    if i > 0 then fprintf ppf "(";
+    fprintf ppf "add@ %a@ "
+      (pp_subst_lit_dk p el) lit;
+    i+1) c 0 in
+  fprintf ppf "empty";
+  for i = 2 to nb_par do
+    fprintf ppf ")"
+  done
       
 let rec pp_proof_term ppf = function
   | Let_o (l, t1, t2) ->
@@ -107,7 +124,7 @@ struct
      fprintf ppf "@[<2>%a@])@]" pp_proof_term pt;
      incr nb_parens;
      fprintf ppf "(%a =>@." pp_cid i
-  | Declare_clause (i, l) -> failwith "Declaration of clauses not allowed in one-proof format"
+  | _ -> failwith "Declaration of clauses not allowed in one-proof format"
       
   let end_proof ppf last_id =
     pp_cid ppf last_id;
@@ -135,7 +152,21 @@ module Proof_steps : PP = struct
        fprintf ppf "@[%a@ :@ @[embed (%a)@].@]@."
          pp_cid i
          pp_clause_dk l
-        
+    | Extended_lit_def (i, p, c) -> 
+       fprintf ppf "@[def %a@ :@ o@]@ :=@ @[<2>or %a (imp (and_clause (%a)) bot)@]."
+         pp_el_dk i
+         pp_lit_dk p
+         pp_clause_dk c
+    | Implied_clause (i, el, c) -> 
+       fprintf ppf "@[%a@ :@ embed@ (add@ %a@ (%a))@]."
+         pp_eid i
+         pp_el_dk el
+         pp_clause_dk c
+    | Subst_clause (i, p, el, c) -> 
+       fprintf ppf "@[%a@ :@ embed@ (%a)@]."
+         pp_eid i
+         (pp_subst_clause_dk p el) c
+         
   let end_proof ppf last_id =
     fprintf ppf "@[thm proof : eps bot := %a.@]@." pp_cid last_id
 

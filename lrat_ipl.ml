@@ -3,8 +3,7 @@ open Ipl
 
 module IdSet = Set.Make(struct type t = id let compare = compare end)
 
-let push_decl (Let_clause(i,_ ,_) |Declare_clause(i,_) as ct) =
-  Format.(fprintf err_formatter "Pushing %a@." pp_id i)[@noopt];
+let push_decl ct =
   Format.(fprintf Globals.dedukti_out "%a@." Proof_steps.pp_clause_term ct)
 
 let declare_new_pred ch =
@@ -31,360 +30,40 @@ let create_tauto id clause =
   ch
              
 
-module type ClauseMap =
-sig
-  val add : clause_hist -> unit
-  val replace : clause_hist -> unit
-  val find : id -> clause_hist
-  val potential_merges : lit -> IdSet.t
-  val remove : bool -> id -> unit
-  val remove_all : id -> unit
-  val remove_from_pm : clause_hist -> unit
-  val exists : id -> bool
-  val not_rat : id -> bool
-  val mem_clause : clause -> bool
-  val not_rat_clause : clause -> bool
-  val link_id : id -> clause -> unit
-  val link_id_and_add_pm : clause_hist -> unit
-end
 
-module CM : ClauseMap =
-struct
+(* Map id -> clause
+   implemented as an Hashtbl *)
+let clausemap : (id, clause) Hashtbl.t = Hashtbl.create 251
+
+(* Map lit -> id set
+   set of clauses in which lit appears *)
+let litmap : (lit, Ptset.t) Hashtbl.t = Hashtbl.create 251
   
-  let id_to_ch : (id, clause_hist) Hashtbl.t = Hashtbl.create 255
-  let id_to_nbref : (id, int) Hashtbl.t = Hashtbl.create 255
-  let clause_to_ch : (clause, clause_hist) Hashtbl.t = Hashtbl.create 255
-  let id_to_id : (id, id) Hashtbl.t = Hashtbl.create 255
-  let reverse : (int, IdSet.t) Hashtbl.t = Hashtbl.create 255
-  let potential_merge : (lit, IdSet.t) Hashtbl.t = Hashtbl.create 255
- 
-  let add_id_to_ch id ch =
-    assert (ch.id = id);
-    Hashtbl.add id_to_ch id ch
-
-  let add_clause_to_ch clause ch =
-    assert (ch.clause = clause);
-    Hashtbl.add clause_to_ch clause ch
-     
-  let replace_id_to_ch id ch =
-    assert (ch.id = id);
-    Hashtbl.replace id_to_ch id ch
-
-  let replace_clause_to_ch clause ch =
-    assert (ch.clause = clause);
-    Hashtbl.replace clause_to_ch clause ch
-     
-      
-  let exists id = Hashtbl.mem id_to_id id
-    
-  let not_rat id =
-    try
-      let real_id = Hashtbl.find id_to_id id in
-      let ch = Hashtbl.find id_to_ch real_id in
-      not @@ is_RAT ch
-    with Not_found -> false
-
-  let add_reverse i id =
-    Format.(fprintf err_formatter "@[Reverse link %i -> %a@]@."
-              i  pp_id id
-    )[@noopt];
-    let s =
-      try
-        Hashtbl.find reverse i
-      with Not_found -> IdSet.empty
-    in
-    Hashtbl.replace reverse i (IdSet.add id s) 
-
-  let add_potential_merge ch =
-    let lit = get_pivot ch in
-    let former_potential_merges =
-      try
-        Hashtbl.find potential_merge lit
-      with
-        Not_found -> IdSet.empty
-    in
-    Format.(fprintf err_formatter "@[Adding %a for merge with lit %i@]@."
-              pp_id ch.id lit
-    )[@noopt];
-    Hashtbl.replace potential_merge lit
-    @@ IdSet.add ch.id former_potential_merges
-
-  let remove_potential_merge ch = 
-    let lit = get_pivot ch in
-    try
-      let former_potential_merges =
-        Hashtbl.find potential_merge lit in
-      let new_potential_merges =
-        IdSet.remove ch.id former_potential_merges in
-      if IdSet.is_empty new_potential_merges then
-        Hashtbl.remove potential_merge lit
-      else 
-        Hashtbl.replace potential_merge lit new_potential_merges
-    with
-      Not_found ->
-        Format.(fprintf err_formatter "@[No pm for lit %i@]@."
-                  lit
-        )[@noopt]
-
-  let remove_from_pm ch =
-    Ptset.iter (fun i ->
-      try
-        let pm = Hashtbl.find potential_merge i in
-        let new_pm = IdSet.remove ch.id pm in
-        if IdSet.is_empty new_pm then
-          Hashtbl.remove potential_merge i
-        else
-          Hashtbl.replace potential_merge i new_pm
-      with Not_found -> ()
-    ) ch.clause
-
-      
-  let incr_nbref id i =
-    let n =
-      try
-        Hashtbl.find id_to_nbref id
-      with Not_found -> 0
-    in
-    Hashtbl.replace id_to_nbref id @@ n + i
-
-  let decr_nbref id =
-    try
-      let n = Hashtbl.find id_to_nbref id in
-      if n <= 1 then Hashtbl.remove id_to_nbref id
-      else Hashtbl.replace id_to_nbref id @@ n - 1;
-      n - 1 
-    with Not_found -> 0
-
-  (* terminates when either id points to himself or was removed *)
-  let rec find_real_id_aux id = 
-    try let id' = Hashtbl.find id_to_id id in
-        if id = id' then id else find_real_id_aux id'
-    with
-      Not_found ->
-        assert (try (Hashtbl.find id_to_ch id).id = id with Not_found -> false);
-        id
-      
-  let find_real_id id =
-    let id' = Hashtbl.find id_to_id id in
-    find_real_id_aux id'
-    
-    
-  let add_id id real_id = 
-    Format.(fprintf err_formatter "@[Adding id %a to %a@]@."
-              pp_id id pp_id real_id
-    )[@noopt];
-    Hashtbl.add id_to_id id real_id;
-    let former_nbref =
-      try
-        Hashtbl.find id_to_nbref id
-      with Not_found -> 0 in
-    incr_nbref real_id (former_nbref + 1);
-    iter_id (fun i -> add_reverse i id) id
-
-  let rec decrease_along_path id =
-    ignore (decr_nbref id);
-    let id' = Hashtbl.find id_to_id id in
-    if id = id' then id'
-    else decrease_along_path id'
-       
-  let rec remove_sub id =
-    Format.(fprintf err_formatter "@ @[Sub deleting clause %a@]"
-              pp_id id 
-    )[@noopt];
-    Hashtbl.remove id_to_id id;
-    begin
-    try
-       let real_id = decrease_along_path id in
-       let n = Hashtbl.find id_to_nbref real_id in 
-       let ch = Hashtbl.find id_to_ch real_id in
-       if n <= 0 then begin
-         Format.(fprintf err_formatter "@[Deleting clause history of %a@]@."
-              pp_id real_id 
-         )[@noopt];
-         Hashtbl.remove clause_to_ch ch.clause;
-         Hashtbl.remove id_to_ch real_id;
-         IdMap.iter (
-           fun i _ -> remove_sub @@ merge_ids real_id i
-         )
-           ch.rats;
-       end;
-       if real_id = id && ch.pivot <> None then (* not sure it is correct *)
-         remove_potential_merge ch
-    with Not_found -> ()
-    end
-
-  let add ch =
-    (* if one is RAT and not the other, keep the non-RAT
-       otherwise add both
-    *)
-    let exception Already of clause_hist in
-    try
-      let existing = Hashtbl.find clause_to_ch ch.clause in
-      if is_RAT existing then
-        if is_RAT ch then raise Not_found
-        else raise (Already existing)
-      else if not (is_RAT ch) then
-        raise Not_found;
-      Format.(fprintf err_formatter "@[Already there and RAT as %a@]@."
-                pp_id existing.id
-      )[@noopt];
-      add_id ch.id existing.id
-    with
-      Not_found -> 
-        add_id ch.id ch.id;
-        Format.(fprintf err_formatter "@[Adding clause %a@]@."
-                  pp_id ch.id 
-        )[@noopt];
-        add_id_to_ch ch.id ch;
-        add_clause_to_ch ch.clause ch;
-        if is_RAT ch then
-          add_potential_merge ch
-    | Already existing ->
-       begin
-         add_id ch.id ch.id;
-         ignore (decr_nbref existing.id);
-         add_id existing.id ch.id;
-         Hashtbl.remove clause_to_ch existing.clause;
-         Hashtbl.remove id_to_ch existing.id;
-         IdMap.iter (
-           fun i _ -> remove_sub @@ merge_ids existing.id i
-         )
-           existing.rats;
-         add_id_to_ch ch.id ch;
-         add_clause_to_ch ch.clause ch
-       end
-        
-  let replace ch =
-    Format.(fprintf err_formatter "@[Replacing clause %a@]@."
-              pp_id ch.id 
-    )[@noopt];
-    replace_id_to_ch ch.id ch;
-    replace_clause_to_ch ch.clause ch;
-    if is_RAT ch then
-      add_potential_merge ch
- 
-  let rec find_from_clauses id =
-    match id with
-      Base i -> raise Not_found
-    | Quotient (a,b) ->
-       let coth = find a in
-       let crat = find b in
-       let first_lit = get_pivot crat in
-       assert (Ptset.mem (-first_lit) coth.clause);
-       let coth_minus = Ptset.remove (-first_lit) coth.clause in
-       let clause = Ptset.union crat.clause coth_minus in
-       let ch = try Hashtbl.find clause_to_ch clause
-         with Not_found ->
-           let ch = create_tauto id clause in
-           add ch; 
-           ch
-       in
-       add_id id ch.id;
-       ch
-       
-      
-  and find id =
-    try
-      let real_id =
-        find_real_id id
-        in
-      Hashtbl.find id_to_ch real_id
-    with
-      Not_found -> find_from_clauses id
-
-        
-  let remove_all id =
-    Format.(fprintf err_formatter "@[<v2>Deleting clause %a"
-              pp_id id 
-    )[@noopt];
-    begin
-    match id with
-    | Quotient _ -> failwith "Trying to remove non base clause"
-    | Base i ->
-       (*try
-         let ch = find id in
-         let nbref = Hashtbl.find clause_to_nbref ch.clause in
-         if nbref <= 1 then
-           begin
-             let s = Hashtbl.find reverse i in
-             Hashtbl.remove reverse i;
-             IdSet.iter remove_sub s;
-             match ch.id with
-               Base i ->
-                 let s = Hashtbl.find reverse i in
-                 Hashtbl.remove reverse i;
-                 IdSet.iter remove_sub s
-             | _ -> remove_sub ch.id
-           end
-         else
-         remove_sub id 
-         with Not_found -> ()*)
-       let s = Hashtbl.find reverse i in
-       Hashtbl.remove reverse i;
-       remove_sub id
-    end;
-    Format.(fprintf err_formatter "@]@.")[@noopt]
-           
-  let remove not_the_clause id =
-    let real_id = Hashtbl.find id_to_id id in
-    Hashtbl.remove id_to_id id;
-    if not not_the_clause then
-      begin
-        let ch = Hashtbl.find id_to_ch real_id in
-        Hashtbl.remove clause_to_ch ch.clause;
-        Hashtbl.remove id_to_ch real_id
-      end
-        
-  let potential_merges l =
-    try
-      Hashtbl.find potential_merge l
-    with Not_found -> IdSet.empty
-
-  let not_rat_clause c =
-    try
-      let ch = Hashtbl.find clause_to_ch c
-      in  not (is_RAT ch)
-    with 
-      Not_found -> false
-
-  let mem_clause c =
-    try
-      let ch = Hashtbl.find clause_to_ch c
-      in Hashtbl.mem id_to_ch ch.id
-    with 
-      Not_found -> false
-        
-  let link_id id c =
-    let ch = Hashtbl.find clause_to_ch c in
-    Format.(fprintf err_formatter "@[<v2>Associating %a with %a@]@."
-              pp_id id  pp_id ch.id
-    )[@noopt];
-    add_id id ch.id
-
-  let link_id_and_add_pm ch =
-    let real_ch = Hashtbl.find clause_to_ch ch.clause in
-    Format.(fprintf err_formatter "@[<v2>Associating with pm %a with %a@]@."
-              pp_id ch.id  pp_id real_ch.id
-    )[@noopt];
-    add_id ch.id real_ch.id;
-    let lit = get_pivot real_ch in
-    let former_potential_merges =
-      try
-        Hashtbl.find potential_merge lit
-      with
-        Not_found -> IdSet.empty
-    in
-    Format.(fprintf err_formatter "@[Adding %a for merge with lit %i@]@."
-              pp_id ch.id lit
-    )[@noopt];
-    Hashtbl.replace potential_merge lit
-    @@ IdSet.add ch.id former_potential_merges
-    
-    
-end  
-
-    
   
+let find_clause id = Hashtbl.find clausemap id  
+
+let find_lit lit = Hashtbl.find litmap lit
+  
+let add_lit id lit =
+  try
+    let s = Hashtbl.find litmap lit in
+    Hashtbl.replace litmap lit (Ptset.add id s)
+  with Not_found -> Hashtbl.add litmap lit (Ptset.singleton id)
+  
+let add_clause id c =
+  Ptset.iter (add_lit id) c;
+  Hashtbl.add clausemap id c
+
+let exists_clause id = Hashtbl.mem clausemap id
+
+let remove_lit id lit =
+  let s = Hashtbl.find litmap lit in
+  Hashtbl.replace litmap lit (Ptset.remove id s)
+  
+let remove_all id = (* TODO: check if must remove something else *)
+  let c = Hashtbl.find clausemap id in
+  Ptset.iter (remove_lit id) c;
+  Hashtbl.remove clausemap id
   
 let array_of_ptset_map f c =
   let s = Ptset.choose c in
@@ -394,66 +73,13 @@ let array_of_ptset_map f c =
   assert (i = Ptset.cardinal c);
   a
 
-exception Need_rat of clause_hist
 exception Not_RUP
-exception Delay of clause_hist
-    
-(** obtain_concrete : env -> clause_hist -> clause_hist
-   return a non-RAT clause using the environment to cut RAT clauses
-   @raises Need_rat if the cutting comes from the clause to construct *)
-let rec obtain_concrete e ch =
-  if not @@ is_RAT ch then
-    ch
-  else
-    match Env.find (get_pivot ch) e with
-    | From_clause j' | From_rat j' ->
-       begin
-         assert (try ignore (CM.find @@ merge_ids ch.id j'); true with Not_found -> false);
-         let ch' = CM.find (merge_ids ch.id j') in
-         obtain_concrete e ch'
-       end
-    | From_self j' ->
-       begin
-         match j' with
-         | Quotient (base,rat) ->
-            if IdMap.mem base ch.rats
-            then
-              let ch' = CM.find (merge_ids ch.id base) in
-              obtain_concrete e ch'
-            else
-              let crat = CM.find rat in
-              if IdMap.mem base crat.rats then
-                raise (Need_rat ch)
-              else
-                raise (Delay ch)
-         | _ -> 
-             raise (Need_rat ch)
-       end         
-    | From_pred ->
-       raise (Delay ch)
-    | From_subrat _ -> failwith "Not implemented"
         
 let rec arg_from_env e cid i =
   try
     match Env.find i e with
       From_clause _ | From_self _ -> Lit i
     | From_pred -> Pred i
-    | From_rat j ->
-       begin
-         let ch = 
-                    CM.find @@ merge_ids j cid
-         in
-         let ch' = obtain_concrete e ch in
-         let new_e = Env.add (-i) From_pred e in
-         Rcstr (i, make_core new_e ch')
-       end
-    | From_subrat j ->
-       begin
-         let ch = CM.find j in
-         let ch' = obtain_concrete e ch in
-         let new_e = Env.add (-i) From_pred e in
-         Rcstr (i, make_core new_e ch')
-       end
   with
     Not_found ->
       let open Format in
@@ -462,37 +88,22 @@ let rec arg_from_env e cid i =
       fprintf err_formatter "@]@.";
       failwith "Not found"
         
-and make_core e ch =
-  assert (not @@ is_RAT ch); (* do not use RAT clause in proofs *)
-  Core (ch.id,
-        array_of_ptset_map (arg_from_env e ch.id) ch.clause)
+and make_core e id c =
+  Core (id,
+        array_of_ptset_map (arg_from_env e id) c)
 
 let unit_propagation =
   Ptset.fold Ptset.remove
     
 
     
-let rec split_rup rup id =
-  match rup with
-    [] -> [], []
-  | x::q when is_in x id -> [], q
-  | x::q -> let b,e = split_rup q id in
-            x::b, e
-
-let remove_rev i l =
-  let rec remove_rev_aux i accu = function
-    | [] -> accu
-    | x::q -> if i = x then remove_rev_aux i accu q else
-        remove_rev_aux i (x::accu) q
-  in
-  remove_rev_aux i [] l
     
     
-let rec rup_rat e invmodel = function
+let rec rup e invmodel = function
   | [] -> raise Not_RUP
   | i::q ->
-     let ci = CM.find i in
-     let propagated = unit_propagation invmodel ci.clause in
+     let ci = find_clause i in
+     let propagated = unit_propagation invmodel ci in
      (* unit propagation should falsify all but at most one literal *)
      assert (Ptset.cardinal propagated <= 1);
      match
@@ -504,402 +115,74 @@ let rec rup_rat e invmodel = function
      with
        Some new_lit -> 
          let new_invmodel = Ptset.add (-new_lit) invmodel in
-         find_concrete ci e new_lit new_invmodel q
+         let new_e_pred = Env.add new_lit From_pred e in
+         let new_e_lit = Env.add (-new_lit) (From_clause i) e in
+         Let_o (-new_lit, make_core new_e_pred i ci,
+           rup new_e_lit new_invmodel q)
      | None ->
-        try
-          let ci = obtain_concrete e ci in
-          Qed (make_core e ci)
-        with
-          Delay cid ->
-            if q = [] then raise (Need_rat cid) else
-            let new_lit = get_pivot cid in
-            let new_invmodel = Ptset.add (-new_lit) invmodel in
-            let new_e_lit = Env.add (-new_lit) (From_rat cid.id) e in
-            let new_e_lit = match cid.id with
-                Base _ -> new_e_lit
-              | Quotient(a,b) ->
-                 let cb = CM.find b in
-                 let first_lit = get_pivot cb in
-                 if Env.mem first_lit new_e_lit then
-                   new_e_lit
-                 else
-                   Env.add first_lit (From_subrat a) new_e_lit in
-            rup_rat new_e_lit new_invmodel q
-              
-(*        
-          if not @@ is_RAT ci
-          then (* parent is a RUP clause *)
-          else
-          let first_lit = get_pivot ci in
-          match  Env.find first_lit e with
-          From_clause first_lit_from | From_rat first_lit_from ->
-          let ch = 
-          try
-          CM.find (merge_ids i first_lit_from)
-          with Not_found ->
-          let open Format in
-          fprintf err_formatter "To: Cannot find RAT clause %a vs %a@." pp_id i pp_id first_lit_from;
-          failwith "make_core"
-          in
-          Qed (make_core e ch)
-          | From_self j ->
-          (* look if the clause to be constructed was originally a RAT
-          or a RUP clause *)
-          begin
-          match j with
-          Base _ -> raise (Need_rat(first_lit, ci.id))
-          | Quotient (a,b) ->
-          let cb = CM.find b in
-          if IdMap.mem a cb.rats then
-          raise (Need_rat(first_lit, ci.id))
-          else 
-          (* first_literal of the RAT clause can nonetheless be obtained *)
-          let new_e_lit = Env.add (-first_lit) (From_rat i) e in
-          let new_invmodel = Ptset.add (-first_lit) invmodel in
-          rup_rat new_e_lit new_invmodel q
-          end
-          | From_pred | From_subrat _ -> failwith "ohoh"
-*)
-
-and find_concrete ci e new_lit new_invmodel q =
-  let new_e_pred = Env.add new_lit From_pred e in
-  try
-    let ch = obtain_concrete new_e_pred ci in
-    let new_e_lit = Env.add (-new_lit) (From_clause ch.id) e in
-    Let_o (-new_lit, make_core new_e_pred ch,
-           rup_rat new_e_lit new_invmodel q)
-  with
-    Delay cid ->
-      if new_lit = get_pivot cid then
-        let new_e_lit = Env.add (-new_lit) (From_rat cid.id) e in
-        let new_e_lit = match cid.id with
-            Base _ -> new_e_lit
-          | Quotient(a,b) ->
-             let cb = CM.find b in
-             let first_lit = get_pivot cb in
-             if Env.mem first_lit new_e_lit then
-               new_e_lit
-             else
-               Env.add first_lit (From_subrat a) new_e_lit in
-        rup_rat new_e_lit new_invmodel q
-      else
-        raise (Need_rat cid)
-
-(*  if IdMap.is_empty ci.rats
-    then (* parent is a RUP clause *)
-    let new_e_pred = Env.add new_lit From_pred e in
-    let new_e_lit = Env.add (-new_lit) (From_clause ci.id) e in
-    Let_o (-new_lit, make_core new_e_pred ci,
-    rup_rat new_e_lit new_invmodel q)
-    else
-    let first_lit = List.hd ci.as_list in
-    if first_lit = new_lit then
-    let new_e_lit = Env.add (-new_lit) (From_rat ci.id) e in
-    rup_rat new_e_lit new_invmodel q
-    else
-    match  Env.find first_lit e with
-    From_clause first_lit_from ->
-    let ch = 
-    try
-    CM.find (merge_ids ci.id first_lit_from)
-    with Not_found ->
-    Format.(fprintf err_formatter "To: Cannot find RAT clause %a vs %a@." pp_id ci.id pp_id first_lit_from);
-    failwith "make_core"
-    in
-    find_concrete ch e new_lit new_invmodel q
-    | From_self j' ->
-    begin
-    match j' with
-    Base _ ->
-    raise (Need_rat(first_lit, ci.id))
-    | Quotient (base,_) -> 
-    if IdMap.mem base ci.rats then
-    let ch' = CM.find (merge_ids ci.id base) in
-    find_concrete ch' e new_lit new_invmodel q
-    else
-    raise (Need_rat(first_lit, ci.id))
-    (*         raise (Need_rat(List.hd ch.as_list, ch.id))*)
-    end
-    | From_pred -> failwith "ohoh"
-    | From_rat k ->
-    assert (CM.not_rat @@ merge_ids ci.id k);
-    let ch = 
-    CM.find (merge_ids ci.id k)
-    in
-    find_concrete ch e new_lit new_invmodel q*)
-(*
-
-  let new_e_lit = Env.add (-new_lit) (From_rat (merge_ids k ci.id)) e in
-  rup_rat new_e_lit new_invmodel q
-*)
-
-          
-and make_rat crat coth =
-  let first_lit = get_pivot crat in
-  if not @@ Ptset.mem (-first_lit) coth.clause then None
-  else
-    try
-      let sides = IdMap.find coth.id crat.rats in
-      try
-        merge_rat crat coth (crat.rup @ sides)
-      with
-        Not_found -> failwith "dzdaj"
-    with
-      Not_found ->
-        merge_rat crat coth @@ update_rup_with_rat crat coth.id coth.rup
-          
-
-and update_rup_with_rat crat tocreate_id rup  =
-  List.map
-    (fun i ->
-      if i = crat.id then
-        tocreate_id
-      else begin
-        (*        if not (CM.exists i) then raise Not_RUP; *)
-        let ci = CM.find i in
-        if Ptset.mem (-get_pivot crat) ci.clause then
-          (*let bid = get_base i in
-          let cbid = CM.find bid in
-          if Ptset.mem (get_pivot crat) cbid.clause then
-            bid
-            else*)
-          merge_ids crat.id i
-        else
-          i end)
-    rup
-
-    
-and merge_rat crat coth rup =
-  assert (crat.pivot <> None);
-  let first_lit = get_pivot crat in
-  assert (Ptset.mem (-first_lit) coth.clause);
-  let coth_minus = Ptset.remove (-first_lit) coth.clause in
-  let clause = Ptset.union crat.clause coth_minus in
-  let id = merge_ids crat.id coth.id in
-  if CM.not_rat_clause clause
-  then (CM.link_id id clause; None)
-  else 
-    let c = { id; clause; pivot = None; rats = IdMap.empty; rup } in
-    begin
-      Format.(fprintf err_formatter "Merging clauses %a and %a@."
-                pp_cid crat.id
-                pp_cid coth.id)[@noopt];
-      Some c
-    end
+          Qed (make_core e i ci)
       
-and prepare_rup c =
-  let r =  try
-             let invmodel = c.clause in
-             let e = Ptset.fold (fun i e ->
-               if Env.mem (-i) e then raise (Tautology i)
+let prepare_rup c =
+  try
+      let invmodel = c.clause in
+      let e = Ptset.fold (fun i e ->
+        if Env.mem (-i) e then raise (Tautology i)
                else Env.add i (From_self c.id) e)
-               c.clause Env.empty in
-             rup_rat e invmodel c.rup
+        c.clause Env.empty in
+      rup e invmodel c.rup
     with
       Tautology i -> Tauto i
-  in
-  r
-    
-and do_potential_merges c =
-  let potential_merges =
-    Ptset.fold
-      (fun i pm ->
-        try
-          IdSet.union (CM.potential_merges @@ -i) pm
-        with
-          Not_found -> pm)
-      c.clause IdSet.empty in
-  begin[@noopt]
-      Format.(fprintf err_formatter "@[Potential merges for %a:" pp_id c.id);
-    IdSet.iter (Format.(fprintf err_formatter " %a" pp_id)) potential_merges;
-    Format.(fprintf err_formatter "@]@.") end;
-  IdSet.iter
-    (fun j ->
-      if not @@ occurs_in_id j c.id then 
-        try
-          let _ =
-            Format.(fprintf err_formatter "potential merge %a %a@." pp_id c.id pp_id j)[@noopt] in
-          let crat = try CM.find  j
-            with Not_found -> Format.(fprintf err_formatter "Not_found : %a@." pp_cid j)[@noopt]; raise Not_found
-          in
-          if is_RAT crat then
-            if not @@ is_RAT c then
-              if CM.not_rat @@ merge_ids crat.id c.id then () else
-                let already_there = CM.exists @@ merge_ids crat.id c.id in
-                try
-                  match make_rat crat c with
-                    None -> let new_crat =
-                              { crat with rats = IdMap.add c.id [] crat.rats } in
-                            CM.replace new_crat
-                  | Some c_merge -> 
-                     begin
-                       (*                       let c_merge = { c_merge with id = merge_ids j c.id } in *)
-                       push_or_virtual c_merge;
-                       if j <> crat.id then
-                         CM.link_id (merge_ids j c.id) c_merge.clause;
-                       if (CM.find j).id <> c_merge.id then
-                         let new_crat =
-                           { crat with rats = IdMap.add c.id [] crat.rats } in
-                         CM.replace new_crat
-                     end
-                with Not_found -> (Format.(fprintf err_formatter "Failed to construct clause %a vs %a@." pp_cid crat.id pp_cid c.id)[@noopt];
-                                   CM.remove already_there @@ merge_ids crat.id c.id
-                )
-            else
-              if CM.exists @@ merge_ids crat.id c.id then ()
-            (* already there, and RAT *)
-              else 
-                begin
-                  Format.(fprintf err_formatter "New RAT clause : %a vs %a@." pp_cid crat.id pp_cid c.id)[@noopt];
-                  match virtual_rat crat c with
-                    None -> ()
-                  | Some cv -> 
-                     ((*Format.(fprintf err_formatter "Making RAT clauses@.");
-                        IdMap.iter
-                        (fun i p ->
-                        if IdMap.mem i crat.rats then begin
-                        Format.(fprintf err_formatter "RAT clause %a@." pp_id i);
-                        let ci = CM.find (merge_ids crat.id i) in
-                        if CM.exists @@ merge_ids c.id ci.id then () else
-                        try match make_rat c ci with
-                        None -> ()
-                        | Some c -> 
-                        (CM.add c;
-                        push_or_virtual c)
-                        with Not_RUP -> ()
-                        end
-                        else ())
-                        c.rats;*)
-                       CM.add cv;
-                       do_potential_merges cv;
-                     ) end
-          else
-            begin
-              Format.(fprintf err_formatter "%a was no longer a RAT clause@." pp_cid crat.id)[@noopt];
-              CM.remove_from_pm crat
-            end
-        with
-          Not_found -> (* j is no longer in the global table, so it is probably not needed *)
-            Format.(fprintf err_formatter "failed merge %a %a@." pp_id c.id pp_id j)[@noopt])
-    potential_merges
+      
 
-and virtual_rat crat coth =
-  let first_lit_crat = get_pivot crat in
-  let first_lit_coth = get_pivot coth in
-  let id = merge_ids crat.id coth.id in
-  let clause = Ptset.union (Ptset.remove (-first_lit_crat) coth.clause) crat.clause in
-  (* assert (first_lit_crat <> - first_lit_coth || CM.mem_clause clause);*)
-  if CM.mem_clause clause
-  then (CM.link_id id clause; None)
-  else
-    let pivot = if first_lit_crat = - first_lit_coth then first_lit_crat else first_lit_coth in
-    let rup = update_rup_with_rat crat coth.id coth.rup in
-    let filtered_rats = IdMap.filter (fun id _ -> CM.exists id) coth.rats in
-    let rats = IdMap.map (update_rup_with_rat crat coth.id) filtered_rats in
-    Some { id; clause; pivot = Some pivot; rats; rup }
+let push ch =
+  Format.(fprintf err_formatter "Trying to push %a@." pp_id ch.id)[@noopt];
+  push_decl @@ Let_clause(ch.id, ch.clause, prepare_rup ch);
+  Format.(fprintf err_formatter "Pushed %a@." pp_id ch.id)[@noopt];
+  add_clause ch.id ch.clause
 
-and push_or_virtual ch =
-  try
-    Format.(fprintf err_formatter "Trying to push %a@." pp_id ch.id)[@noopt];
-    begin
-      try
-        push_decl @@ Let_clause(ch.id, ch.clause, prepare_rup ch);
-        Format.(fprintf err_formatter "Pushed %a@." pp_id ch.id)[@noopt];
-        CM.add ch;
-        do_potential_merges ch
-      with
-        Not_RUP ->
-          Format.(fprintf err_formatter "Not able to construct %a@." pp_id ch.id)[@noopt];
-          if CM.mem_clause ch.clause then
-            begin
-              Format.(fprintf err_formatter "Linking nonetheless to RAT clause.@.")[@noopt];
-              CM.link_id ch.id ch.clause
-            end
-    end;
-  with
-    Need_rat crat ->
-      let i = get_pivot crat in
-      Format.(fprintf err_formatter "Virtual RAT clause %a with %i and %a.@."
-                pp_id ch.id i pp_id crat.id
-      )[@noopt];
-      (* if Ptset.is_empty @@ snd ch.id then *)
-      if CM.mem_clause ch.clause then
-        begin
-          Format.(fprintf err_formatter "Already there.@.")[@noopt];
-          CM.link_id_and_add_pm ch;
-        end
-      else
-        begin
-          let begin_rup, end_rup = split_rup ch.rup crat.id in
-          let new_rats = IdMap.mapi (fun k _ -> merge_ids crat.id k::
-            List.map (fun j ->
-              let cj = CM.find j in
-              if is_RAT cj && i = get_pivot cj
-              then (Format.(fprintf err_formatter "updating %a %a@." pp_id cj.id pp_id k)[@noopt]; merge_ids cj.id k)
-              else j)
-            end_rup)
-            crat.rats in
-          let new_rats = IdMap.filter (fun j _ -> CM.exists j) new_rats in
-          let new_clause =
-            { ch with pivot = Some i;
-              rup = begin_rup;
-              rats = new_rats
-            }
-          in
-          CM.add new_clause; 
-          IdMap.iter
-            (fun i p ->
-              if not @@ occurs_in_id i ch.id then 
-                begin
-                  Format.(fprintf err_formatter "VRATing %a@."
-                            pp_id i)[@noopt];
-                  (*          if not @@ occurs_in_id i ch.id then*)
-                  if CM.exists i then 
-                    let ci = CM.find i in
-                    if CM.not_rat @@ merge_ids ch.id ci.id then
-                      Format.(fprintf err_formatter "Not doing %a@." pp_id ci.id)[@noopt]
-                    else
-                      match make_rat new_clause ci with
-                        None -> ()
-                      | Some c -> 
-                         Format.(fprintf err_formatter "Was here %a@." pp_id c.id)[@noopt];
-                        push_or_virtual c;
-                end
-            )
-            new_clause.rats;
-          do_potential_merges new_clause
-        end
-(*      else
-        begin Format.(fprintf err_formatter "No adding virtual clause@.");
-          raise No_need_RAT end
-*)
+let extends_rat ch =
+  let p = get_pivot ch in
+  let r = Ptset.remove p ch.clause in
+(* Define a new variable replacing p *)
+  let el = new_extended_lit () in
+  push_decl @@ Extended_lit_def (el, p, r);
+(* Prove clause deriving from this definition *)
+  (* el | r *)
+  let eid = new_extended_id () in
+  push_decl @@ Implied_clause (eid, el, r);
+  (* el | ~p *)
+  let eid' = new_extended_id () in
+  push_decl @@ Implied_clause (eid', el, Ptset.singleton (- p));
+  (* ~el | p | ~ci *)
+  Ptset.iter (fun i ->
+    let eid' = new_extended_id () in
+    push_decl @@
+      Implied_clause (eid', op_el el, Ptset.add p (Ptset.singleton (-i))))
+    r;
+(* Prove new clauses from the existing ones *)
+  let clauses_with_p = find_lit p in
+  Ptset.iter (fun id ->
+    let clause = find_clause id in
+    let eid' = new_extended_id () in
+    push_decl @@
+      Subst_clause (eid', p, el, clause);
+    add_extended_id (find_extended_id id) eid'
+  ) clauses_with_p;
+  IdMap.iter (fun ci rupi ->
+    let clause = find_clause ci in
+    let eid' = new_extended_id () in
+    push_decl @@
+      Subst_clause (eid', -p, op_el el, clause);
+    add_extended_id (find_extended_id ci) eid')
+    ch.rats;
+  add_extended_id (find_extended_id ch.id) eid;
+  add_extended_lit (find_extended_lit p) el;
+  add_clause ch.id ch.clause
     
 let define_clauses ch =
   Format.(fprintf err_formatter "Beginning clause %a@."
             pp_id ch.id)[@noopt];
   if not @@ is_RAT ch then
-    push_or_virtual ch
+    push ch
   else
-    if IdMap.is_empty ch.rats then
-      let ch' = { ch with pivot = None } in
-      CM.add ch';
-      declare_new_pred ch'
-      else 
-      begin
-        CM.add ch;
-        IdMap.iter
-          (fun i p ->
-            Format.(fprintf err_formatter "RATing %a@."
-                      pp_id i)[@noopt];
-            if CM.not_rat @@ merge_ids ch.id i then
-              Format.(fprintf err_formatter "Not doing %a@." pp_id i)[@noopt]
-            else
-              let ci = CM.find i in        
-              match make_rat ch ci with
-                None -> ()
-              | Some c -> 
-                 push_or_virtual c
-          )
-          ch.rats;
-        do_potential_merges ch;
-      end
+    extends_rat ch

@@ -10,11 +10,11 @@ let read_cnf f deleted =
   try
     while true do
       let c = Dimacs_lexer.line lexbuf in
-      let Base i = get_base c.id in
+      let i = c.id in
         Format.(fprintf Globals.dedukti_out  "@[def C%a : clause :=@ %a.@]@."
                   pp_id c.id Lrat_types.pp_clause_dk c.clause);
       if Ptset.mem i deleted then () else
-        Lrat_ipl.CM.add c
+        Lrat_ipl.add_clause i c.clause
     done
   with End_of_file ->
     close_in ic;
@@ -28,9 +28,8 @@ let read_cnf f deleted =
 let last_id = ref (base_id (-1))
 
 let process_rat ({id} as ch) =
-  let ch,id = if Lrat_ipl.CM.exists id then
-      let id = base_id @@
-        let Base i = get_base !last_id in i + 1 in
+  let ch,id = if Lrat_ipl.exists_clause id then
+      let id = base_id @@ !last_id + 1 in
       { ch with id }, id
     else ch,id in
   Lrat_ipl.define_clauses ch;
@@ -49,7 +48,7 @@ let read_lrat f =
     while true do
       let line = Lrat_lexer.line lexbuf in
       match line with
-        Delete l ->  List.iter (Lrat_ipl.CM.remove_all) l
+        Delete l ->  List.iter (Lrat_ipl.remove_all) l
       | Rat ch ->
          last_id := process_rat ch
     done
