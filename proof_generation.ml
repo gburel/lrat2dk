@@ -12,7 +12,7 @@ let read_cnf f deleted =
       let c = Dimacs_lexer.line lexbuf in
       let i = c.id in
         Format.(fprintf Globals.dedukti_out  "@[def C%a : clause :=@ %a.@]@."
-                  pp_id c.id Lrat_types.pp_clause_dk c.clause);
+                  pp_id c.id (Lrat_types.pp_clause_dk empty_subst) c.clause);
       if Ptset.mem i deleted then () else
         Lrat_ipl.add_clause i c.clause
     done
@@ -27,22 +27,25 @@ let read_cnf f deleted =
 
 let last_id = ref (base_id (-1))
 
-let process_rat ({id} as ch) =
+let process_rat s ({id} as ch) =
   let ch,id = if Lrat_ipl.exists_clause id then
       let id = base_id @@ !last_id + 1 in
       { ch with id }, id
     else ch,id in
-  Lrat_ipl.define_clauses ch;
-  id
+  let s = Lrat_ipl.define_clauses s ch in
+  id, s
 
 let read_lrat f =
+  let subst = ref Lrat_types.empty_subst in
   let ic = open_in f in
   let lexbuf = Lexing.from_channel ic in
   begin
     match Lrat_lexer.line lexbuf with
       Delete _ -> () (* first line already processed *)
     | Rat ch ->
-       last_id := process_rat ch
+       let i, s = process_rat !subst ch in
+       last_id := i;
+       subst := s
   end;
   try
     while true do
@@ -50,11 +53,13 @@ let read_lrat f =
       match line with
         Delete l ->  List.iter (Lrat_ipl.remove_all) l
       | Rat ch ->
-         last_id := process_rat ch
+       let i, s = process_rat !subst ch in
+       last_id := i;
+       subst := s
     done
   with End_of_file ->
     close_in ic;
-    PP.end_proof Globals.dedukti_out !last_id;
+    PP.end_proof !subst Globals.dedukti_out !last_id;
     Printf.printf "Read LRAT file %s\n" f
   | e ->
      let open Lexing in
