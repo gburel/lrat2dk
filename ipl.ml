@@ -14,19 +14,20 @@ type proof_term =
   | Let_extended of extended_lit (* new lit *) * extended_lit (* pivot *)
     * clause (* remainder *) * proof_term
   | Extended of extended_lit * clause (* remainder *)
+  | New of extended_lit * clause (* remainder *)
 
 type clause_term =
     Let_clause of extended_id * clause * proof_term
   | Declare_clause of extended_id * clause
   | Extended_lit_def of extended_lit * lit * clause
+  | New_lit_def of lit * clause
 
 open Format
 
 let declare_preds ppf l u =
   for i = l to u do
     fprintf ppf "p%d : o.@." i
-  done;
-  Globals.max_pred := u
+  done
 
 let pp_termpred ppf i = if is_pos i then
     fprintf ppf "tp%a" pp_el_dk i
@@ -130,6 +131,24 @@ let rec pp_proof_term s ppf = function
          fprintf ppf "@ %a" pp_termpred (neg_el l)) r ();
      fprintf ppf "))";
      for i = 1 to nb_neg do fprintf ppf ")@]" done
+  | New (x, r) ->
+     let nb_neg =
+       Ptset.fold (fun i n ->
+         let l = find_extended_lit s i in
+         if is_pos l then n else
+           begin
+             fprintf ppf "%a@ @[(%a =>@ "
+               pp_termlit l
+               pp_termpred (neg_el l);
+             n+1
+           end) r 0 in
+     fprintf ppf "%a@ (rem => rem"
+       pp_termlit x;
+     Ptset.fold (fun i _ ->
+         let l = find_extended_lit s i in
+         fprintf ppf "@ %a" pp_termpred (neg_el l)) r ();
+     fprintf ppf ")";
+     for i = 1 to nb_neg do fprintf ppf ")@]" done
 
 
 module type PP = sig
@@ -198,8 +217,12 @@ module Proof_steps : PP = struct
          pp_eid i
          (pp_clause_dk s) l
     | Extended_lit_def (i, p, c) ->
-       fprintf ppf "@[def %a@ :@ o@]@ :=@ @[<2>or %a (imp (and_clause (%a)) bot)@]."
+       fprintf ppf "@[def %a@ :@ o@]@ :=@ @[<2>or %a (imp (and_clause (%a)) bot)@].@."
          pp_el_dk i
+         (pp_lit_dk s) p
+         (pp_neg_clause_dk s) c
+    | New_lit_def (p, c) ->
+       fprintf ppf "@[def %a@ :@ o@]@ :=@ @[<2>imp (and_clause (%a)) bot@].@."
          (pp_lit_dk s) p
          (pp_neg_clause_dk s) c
 

@@ -6,12 +6,6 @@ module IdSet = Set.Make(struct type t = id let compare = compare end)
 let push_decl s ct =
   Format.(fprintf Globals.dedukti_out "%a@." (Proof_steps.pp_clause_term s) ct)
 
-let declare_new_pred s ch =
-  let max_lit = Ptset.fold (fun l m -> max (abs l) m) ch.clause 0 in
-  if max_lit > !Globals.max_pred then
-    declare_preds Globals.dedukti_out (!Globals.max_pred + 1) max_lit;
-  push_decl s @@ Declare_clause(find_extended_id s ch.id, ch.clause)
-
 exception Tautology of lit
 
 
@@ -21,13 +15,31 @@ exception Tautology of lit
 let clausemap : (id, clause) Hashtbl.t = Hashtbl.create 251
 
 (* Map lit -> id set
-   set of clauses in which lit appears *)
+   set of clauses in which lit appears
+   No mapping if the literal was never seen
+   Maps to the empty Ptset if the literal was seen but never used
+*)
 let litmap : (lit, Ptset.t) Hashtbl.t = Hashtbl.create 251
 
 
 let find_clause id = Hashtbl.find clausemap id
 
-let find_lit lit = Hashtbl.find litmap lit
+let find_lit lit =
+  try
+    Hashtbl.find litmap lit
+  with
+    Not_found ->
+      Format.(fprintf err_formatter "Literal %i not yet seen, find_lit returns empty set of clauses.@." lit)[@noopt];
+      Ptset.empty
+
+let exists_lit lit =
+  try
+    let _ = Hashtbl.find litmap lit in true
+  with Not_found -> false
+
+let create_lit lit =
+  Hashtbl.add litmap lit Ptset.empty
+
 
 let add_lit id lit =
   try
@@ -130,64 +142,78 @@ let push s ch =
 let extends_rat s ch =
   let p = get_pivot ch in
   let r = Ptset.remove p ch.clause in
-(* Define a new variable replacing p *)
-  let el = new_extended_lit () in
-  let new_s = add_extended_lit s (find_extended_lit s p) el in
-  push_decl s @@ Extended_lit_def (el, p, r);
-(* Prove clause deriving from this definition *)
+  if not (exists_lit p) then
+    (* special case of a new propositional variable *)
+    begin
+      create_lit p; create_lit (-p);
+      push_decl s @@ New_lit_def (p, r);
+      push_decl s @@ Let_clause(find_extended_id s ch.id, ch.clause,
+                                New(find_extended_lit s p, r));
+      add_clause ch.id ch.clause;
+      s
+    end
+  else
+    (* general case : define a new propositional variable as an extension *)
+    begin
+  (* Define a new variable replacing p *)
+      let el = new_extended_lit () in
+      let new_s = add_extended_lit s (find_extended_lit s p) el in
+      push_decl s @@ Extended_lit_def (el, p, r);
+  (* Prove clause deriving from this definition *)
   (* el | r *)
-  let eid = new_extended_id () in
-  push_decl new_s @@ Let_clause (eid, ch.clause, Extended(el, r));
-(* not needed, can do direct proofs
+      let eid = new_extended_id () in
+      push_decl new_s @@ Let_clause (eid, ch.clause, Extended(el, r));
+  (* not needed, can do direct proofs
   (* el | ~p *)
-  let eid' = new_extended_id () in
-  push_decl s @@ Implied_clause (eid', el, Ptset.singleton (- p));
+     let eid' = new_extended_id () in
+     push_decl s @@ Implied_clause (eid', el, Ptset.singleton (- p));
   (* ~el | p | ~ci *)
-  Ptset.iter (fun i ->
-    let eid' = new_extended_id () in
-    push_decl s @@
-      Implied_clause (eid', neg_el el, Ptset.add p (Ptset.singleton (-i))))
-    r;
-*)
+     Ptset.iter (fun i ->
+     let eid' = new_extended_id () in
+     push_decl s @@
+     Implied_clause (eid', neg_el el, Ptset.add p (Ptset.singleton (-i))))
+     r;
+  *)
   (* Prove new clauses from the existing ones *)
-  let clauses_with_p = find_lit p in
-  let s' = Ptset.fold (fun id subst ->
-    let clause = find_clause id in
-    let eid' = new_extended_id () in
-    push_decl subst @@
-      Let_clause (eid', clause,
-                  Let_o (find_extended_lit s p, Proj(el, find_extended_lit s p),
-                  Qed (Core (find_extended_id s id, array_of_ptset_map (fun i ->
-                    Lit (find_extended_lit s i)) clause)))
-      );
-    add_extended_id subst (find_extended_id subst id) eid'
-  ) clauses_with_p new_s in
-  let s =
-    IdMap.fold  (fun ci rupi subst ->
-      let clause = find_clause ci in
-      let fake_clause_hist = { clause = Ptset.union r @@ Ptset.remove (-p) clause;
-                               id = -ci;
-                               pivot = None;
-                               rup = ci :: ch.rup @ rupi;
-                               rats = IdMap.empty; } in
-      let eid' = new_extended_id () in
-      let new_subst = add_extended_id subst (find_extended_id subst ci) eid' in
-      let pt_remainder = prepare_rup s fake_clause_hist in
-      push_decl new_subst @@
-        Let_clause (eid', clause,
-                    Let_o (find_extended_lit s p,
-                           Core (find_extended_id s ci,
-                                 array_of_ptset_map (fun i ->
-                                   if i = -p then Pred (find_extended_lit s i)
-                                   else Lit (find_extended_lit s i)
-                                 ) clause),
-                    Let_extended (neg_el el, find_extended_lit s p, r, pt_remainder
-                    )));
-      new_subst
-    )
-      ch.rats s' in
-  let s = add_extended_id s (find_extended_id s ch.id) eid in
-  add_clause ch.id ch.clause; s
+      let clauses_with_p = find_lit p in
+      let s' = Ptset.fold (fun id subst ->
+        let clause = find_clause id in
+        let eid' = new_extended_id () in
+        push_decl subst @@
+          Let_clause (eid', clause,
+                      Let_o (find_extended_lit s p, Proj(el, find_extended_lit s p),
+                             Qed (Core (find_extended_id s id, array_of_ptset_map (fun i ->
+                               Lit (find_extended_lit s i)) clause)))
+          );
+        add_extended_id subst (find_extended_id subst id) eid'
+      ) clauses_with_p new_s in
+      let s =
+        IdMap.fold  (fun ci rupi subst ->
+          let clause = find_clause ci in
+          let fake_clause_hist = { clause = Ptset.union r @@ Ptset.remove (-p) clause;
+                                   id = -ci;
+                                   pivot = None;
+                                   rup = ci :: ch.rup @ rupi;
+                                   rats = IdMap.empty; } in
+          let eid' = new_extended_id () in
+          let new_subst = add_extended_id subst (find_extended_id subst ci) eid' in
+          let pt_remainder = prepare_rup s fake_clause_hist in
+          push_decl new_subst @@
+            Let_clause (eid', clause,
+                        Let_o (find_extended_lit s p,
+                               Core (find_extended_id s ci,
+                                     array_of_ptset_map (fun i ->
+                                       if i = -p then Pred (find_extended_lit s i)
+                                       else Lit (find_extended_lit s i)
+                                     ) clause),
+                               Let_extended (neg_el el, find_extended_lit s p, r, pt_remainder
+                               )));
+          new_subst
+        )
+          ch.rats s' in
+      let s = add_extended_id s (find_extended_id s ch.id) eid in
+      add_clause ch.id ch.clause; s
+    end
 
 let define_clauses s ch =
   Format.(fprintf err_formatter "Beginning clause %a@."

@@ -7,6 +7,7 @@ let read_cnf f deleted =
   let lexbuf = Lexing.from_channel ic in
   let nb_vars, nb_clauses = Dimacs_lexer.first_line lexbuf in
   Ipl.declare_preds Globals.dedukti_out 1 nb_vars;
+  for i = 1 to nb_vars do Lrat_ipl.create_lit i; Lrat_ipl.create_lit (-i) done;
   try
     while true do
       let c = Dimacs_lexer.line lexbuf in
