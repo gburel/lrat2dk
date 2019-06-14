@@ -34,7 +34,7 @@ ppx_remove_debug: ppx_remove_debug.ml
 	ocamlfind ocamlc -package ppx_tools.metaquot -o $@ -I +compiler-lib ocamlcommon.cma $<
 
 clean:
-	-rm *.cmo *.cmi lrat2dk
+	-rm *.cmo *.cmi lrat2dk ppx_remove_debug
 
 depend:
 	ocamldep *.ml *.mli > .depend

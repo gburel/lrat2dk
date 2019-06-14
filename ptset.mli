@@ -35,26 +35,3 @@ include Set.S with type elt = int
    intersection. *)
 
 val intersect : t -> t -> bool
-
-
-(*s Big-endian Patricia trees *)
-
-module Big : sig
-  include Set.S with type elt = int
-  val intersect : t -> t -> bool
-end
-
-
-(*s Big-endian Patricia trees with non-negative elements. Changes:
-    - [add] and [singleton] raise [Invalid_arg] if a negative element is given
-    - [mem] is slightly faster (the Patricia tree is now a search tree)
-    - [min_elt] and [max_elt] are now O(log(N))
-    - [elements] returns a list with elements in ascending order
- *)
-
-module BigPos : sig
-  include Set.S with type elt = int
-  val intersect : t -> t -> bool
-end
-
-
