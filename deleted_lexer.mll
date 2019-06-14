@@ -13,5 +13,5 @@ and line_cont = parse
 
 and line = parse
   [' ''\t']+ { line lexbuf }
-| nat as n { line_cont lexbuf }
+| nat { line_cont lexbuf }
 | eof { raise End_of_file }
