@@ -146,11 +146,15 @@ let extends_rat s ch =
     (* special case of a new propositional variable *)
     begin
       create_lit p; create_lit (-p);
-      push_decl s @@ New_lit_def (p, r);
-      push_decl s @@ Let_clause(find_extended_id s ch.id, ch.clause,
-                                New(find_extended_lit s p, r));
+      let el, new_s = if p > 0 then Real p, s
+        (* if the literal is negative, we introduce a new positive one instead *)
+        else let el = new_extended_lit () in
+             el, add_extended_lit s (find_extended_lit s p) el in
+      push_decl s @@ New_lit_def (el, r);
+      push_decl new_s @@ Let_clause(find_extended_id s ch.id, ch.clause,
+                                New(el, r));
       add_clause ch.id ch.clause;
-      s
+      new_s
     end
   else
     (* general case : define a new propositional variable as an extension *)

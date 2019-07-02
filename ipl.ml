@@ -20,7 +20,7 @@ type clause_term =
     Let_clause of extended_id * clause * proof_term
   | Declare_clause of extended_id * clause
   | Extended_lit_def of extended_lit * lit * clause
-  | New_lit_def of lit * clause
+  | New_lit_def of extended_lit * clause
 
 open Format
 
@@ -223,7 +223,7 @@ module Proof_steps : PP = struct
          (pp_neg_clause_dk s) c
     | New_lit_def (p, c) ->
        fprintf ppf "@[def %a@ :@ o@]@ :=@ @[<2>imp (and_clause (%a)) bot@].@."
-         (pp_lit_dk s) p
+         pp_el_dk  p
          (pp_neg_clause_dk s) c
 
 
