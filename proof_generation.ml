@@ -77,14 +77,30 @@ let get_deleted f =
   close_in ic;
   deleted
 
-let _ =
-  if Array.length Sys.argv < 2 then
-    Printf.fprintf stderr "Usage: %s prefix\n\tprefix.cnf contains the problem\n\tprefix.lrat contains the proof\n\tThe dedukti term is written in prefix.dk\n" Sys.argv.(0)
-  else
-    let cnf_file = Sys.argv.(1) ^ ".cnf" in
-    let lrat_file = Sys.argv.(1) ^ ".lrat" in
-    let dk_file = Sys.argv.(1) ^ ".dk" in
-    let ic = open_in "dedukti_prefix" in
+
+let usage_msg = Printf.sprintf "Usage : %s [-o output.dk] [-p header.dk] prefix\n  prefix.cnf contains the problem in DIMACS format\n  prefix.lrat contains the proof in LRAT format" Sys.argv.(0)
+let input_file = ref None
+let output_file = ref ""
+let prefix_file = ref "dedukti_prefix"
+
+let anon_fun : string -> unit = fun filename ->
+  match !input_file with
+  | None -> input_file := Some filename
+  | Some _ -> failwith "Cannot process several problems at once."
+
+let speclist = Arg.align
+  [
+    ("-o", Arg.Set_string output_file, "output.dk Set output file name (default prefix.dk)");
+    ("-p", Arg.Set_string prefix_file, "header.dk Set name of the included header file (default " ^ !prefix_file ^ ")")
+  ]
+
+let handle_filename filename =
+    let cnf_file = filename ^ ".cnf" in
+    let lrat_file = filename ^ ".lrat" in
+    let dk_file =
+      if !output_file = "" then filename ^ ".dk"
+      else !output_file in
+    let ic = open_in !prefix_file in
     let dedukti_out =
       let oc = open_out dk_file in
       Format.formatter_of_out_channel oc
@@ -97,3 +113,14 @@ let _ =
       let deleted = get_deleted lrat_file in
       read_cnf cnf_file deleted dedukti_out;
       read_lrat lrat_file dedukti_out
+
+
+
+let _ =
+  Arg.parse speclist anon_fun usage_msg;
+  match !input_file with
+  | None ->
+    print_endline usage_msg;
+    print_endline "No input prefix given, exiting.";
+    exit 1
+  | Some f -> handle_filename f
