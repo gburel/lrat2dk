@@ -304,7 +304,7 @@ let elements s =
   in
   (* unfortunately there is no easy way to get the elements in ascending
      order with little-endian Patricia trees *)
-  List.sort Pervasives.compare (elements_aux [] s)
+  List.sort Stdlib.compare (elements_aux [] s)
 
 let split x s =
   let coll k (l, b, r) =
@@ -389,3 +389,7 @@ let rec intersect s1 s2 = match (s1,s2) with
         false
 
 
+let disjoint _ = failwith "Ptset.disjoint not implemented"
+let filter_map _ = failwith "Ptset.filtermap not implemented"
+let to_list _ = failwith "Ptset.to_list not implemented"
+let to_rev_seq _ = failwith "Ptset.to_rev_seq not implemented"

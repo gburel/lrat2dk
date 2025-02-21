@@ -3,8 +3,8 @@ open Ipl
 
 module IdSet = Set.Make(struct type t = id let compare = compare end)
 
-let push_decl s ct =
-  Format.(fprintf Globals.dedukti_out "%a@." (Proof_steps.pp_clause_term s) ct)
+let push_decl  dedukti_out s ct =
+  Format.(fprintf dedukti_out "%a@." (Proof_steps.pp_clause_term s) ct)
 
 exception Tautology of lit
 
@@ -132,14 +132,14 @@ let prepare_rup s c =
       Tautology i -> Tauto (find_extended_lit s i)
 
 
-let push s ch =
+let push dedukti_out s ch =
   Format.(fprintf err_formatter "Trying to push %a@." pp_id ch.id)[@noopt];
-  push_decl s
+  push_decl dedukti_out s
   @@ Let_clause(find_extended_id s ch.id, ch.clause, prepare_rup s ch);
   Format.(fprintf err_formatter "Pushed %a@." pp_id ch.id)[@noopt];
   add_clause ch.id ch.clause
 
-let extends_rat s ch =
+let extends_rat dedukti_out s ch =
   let p = get_pivot ch in
   let r = Ptset.remove p ch.clause in
   if not (exists_lit p) then
@@ -150,8 +150,8 @@ let extends_rat s ch =
         (* if the literal is negative, we introduce a new positive one instead *)
         else let el = new_extended_lit () in
              el, add_extended_lit s (find_extended_lit s p) el in
-      push_decl s @@ New_lit_def (el, r);
-      push_decl new_s @@ Let_clause(find_extended_id s ch.id, ch.clause,
+      push_decl dedukti_out s @@ New_lit_def (el, r);
+      push_decl dedukti_out new_s @@ Let_clause(find_extended_id s ch.id, ch.clause,
                                 New(el, r));
       add_clause ch.id ch.clause;
       new_s
@@ -162,19 +162,19 @@ let extends_rat s ch =
   (* Define a new variable replacing p *)
       let el = new_extended_lit () in
       let new_s = add_extended_lit s (find_extended_lit s p) el in
-      push_decl s @@ Extended_lit_def (el, p, r);
+      push_decl dedukti_out s @@ Extended_lit_def (el, p, r);
   (* Prove clause deriving from this definition *)
   (* el | r *)
       let eid = new_extended_id () in
-      push_decl new_s @@ Let_clause (eid, ch.clause, Extended(el, r));
+      push_decl dedukti_out new_s @@ Let_clause (eid, ch.clause, Extended(el, r));
   (* not needed, can do direct proofs
   (* el | ~p *)
      let eid' = new_extended_id () in
-     push_decl s @@ Implied_clause (eid', el, Ptset.singleton (- p));
+     push_decl dedukti_out s @@ Implied_clause (eid', el, Ptset.singleton (- p));
   (* ~el | p | ~ci *)
      Ptset.iter (fun i ->
      let eid' = new_extended_id () in
-     push_decl s @@
+     push_decl dedukti_out s @@
      Implied_clause (eid', neg_el el, Ptset.add p (Ptset.singleton (-i))))
      r;
   *)
@@ -183,7 +183,7 @@ let extends_rat s ch =
       let s' = Ptset.fold (fun id subst ->
         let clause = find_clause id in
         let eid' = new_extended_id () in
-        push_decl subst @@
+        push_decl dedukti_out subst @@
           Let_clause (eid', clause,
                       Let_o (find_extended_lit s p, Proj(el, find_extended_lit s p),
                              Qed (Core (find_extended_id s id, array_of_ptset_map (fun i ->
@@ -202,7 +202,7 @@ let extends_rat s ch =
           let eid' = new_extended_id () in
           let new_subst = add_extended_id subst (find_extended_id subst ci) eid' in
           let pt_remainder = prepare_rup s fake_clause_hist in
-          push_decl new_subst @@
+          push_decl dedukti_out new_subst @@
             Let_clause (eid', clause,
                         Let_o (find_extended_lit s p,
                                Core (find_extended_id s ci,
@@ -219,10 +219,10 @@ let extends_rat s ch =
       add_clause ch.id ch.clause; s
     end
 
-let define_clauses s ch =
+let define_clauses dedukti_out s ch =
   Format.(fprintf err_formatter "Beginning clause %a@."
             pp_id ch.id)[@noopt];
   if not @@ is_RAT ch then
-    (push s ch; s)
+    (push dedukti_out s ch; s)
   else
-    extends_rat s ch
+    extends_rat dedukti_out s ch

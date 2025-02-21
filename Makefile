@@ -2,6 +2,8 @@ all: lrat2dk debug_printers.cmo cleandk lrat2dk.opt
 
 OCAMLCFLAGS= -g
 OCAMLOPTFLAGS= -noassert -nodynlink -O3 -unsafe -ppx ./ppx_remove_debug
+DKCHECK=dk check
+
 %.ml: %.mll
 	ocamllex $<
 
@@ -19,7 +21,7 @@ globals.cmo: globals.cmi
 %.cmi: %.mli
 	ocamlc -c $<
 
-OBJ=ptset.cmo deleted_lexer.cmo lrat_types.cmo globals.cmo dimacs_lexer.cmo lrat_lexer.cmo ipl.cmo lrat_ipl.cmo proof_generation.cmo
+OBJ=ptset.cmo deleted_lexer.cmo lrat_types.cmo dimacs_lexer.cmo lrat_lexer.cmo ipl.cmo lrat_ipl.cmo proof_generation.cmo
 
 lrat2dk: $(OBJ)
 	ocamlc $(OCAMLCFLAGS) -o $@ $(OBJ)
@@ -31,7 +33,7 @@ cleandk: analyse_lexer.cmo filter_lexer.cmo cleandk.cmo
 	ocamlc $(OCAMLCFLAGS) -o $@ $^
 
 ppx_remove_debug: ppx_remove_debug.ml
-	ocamlfind ocamlc -package ppx_tools.metaquot -o $@ -I +compiler-lib ocamlcommon.cma $<
+	ocamlfind ocamlc -package ppxlib -package ppxlib.metaquot -linkpkg -o $@ $<
 
 clean:
 	-rm *.cmo *.cmi lrat2dk ppx_remove_debug
@@ -42,6 +44,6 @@ depend:
 test:
 	-mv examples/*.dk examples/backups/
 	sh ./test.sh 2> log_tests
-	for i in examples/*.dk; do echo "Checking $$i"; dkcheck $$i; done
+	for i in examples/*.dk; do echo "Checking $$i"; $(DKCHECK) $$i; done
 
 include .depend
